@@ -1,17 +1,18 @@
 // Core exports
-export { Table, isTableWithConstraints, getTableConstraints, getTableAutoIndexes } from "./core/Table.js";
-export { 
-  unique, 
-  relation, 
-  index, 
-  notNull, 
-  defaultValue as default,
-  constraints,
+export {
+  Table,
+  isTableWithConstraints,
+  getTableConstraints,
+  getTableAutoIndexes,
+  schema,
+  tableEntry,
+} from './core/Table.js'
+export {
   getAutoIndexFields,
   getRelationConstraints,
   getUniqueConstraints,
-  getExplicitIndexConstraints
-} from "./core/constraints.js";
+  getExplicitIndexConstraints,
+} from './core/constraints.js'
 
 // Runtime exports
 export {
@@ -19,9 +20,8 @@ export {
   withConstraints,
   createInsertWithConstraints,
   createUpdateWithConstraints,
-  createDeleteWithConstraints
-} from "./runtime/index.js";
-
+  createDeleteWithConstraints,
+} from './runtime/index.js'
 
 // Type exports
 export type {
@@ -36,8 +36,8 @@ export type {
   TableWithConstraints,
   TableMetadata,
   SchemaMetadata,
-  GeneratedConstraintCode
-} from "./core/types.js";
+  GeneratedConstraintCode,
+} from './core/types.js'
 
 // Re-export convex-helpers for convenience
-export { Table as ConvexHelpersTable } from "convex-helpers/server";
+export { Table as ConvexHelpersTable } from 'convex-helpers/server'

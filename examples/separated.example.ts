@@ -4,67 +4,65 @@
 // 1. In your schema file (Convex environment)
 // ========================================
 // convex/schema.ts
-import { defineSchema } from "convex/server";
-import { v } from "convex/values";
+import { defineSchema } from 'convex/server'
+import { v } from 'convex/values'
 // ✅ Safe import - no Node.js dependencies
-import { Table, unique, relation, index } from "convex-sql";
+import { Table, unique, relation, index } from 'convex-sql'
 
 const Users = Table('users', {
   email: v.string(),
   name: v.string(),
-}).constraints([
-  unique('email'),
-  index('name'),
-]);
+}).constraints((c) => [unique('email'), index(['name'], 'name_idx')])
 
 const Posts = Table('posts', {
   title: v.string(),
   userId: v.id('users'),
-}).constraints([
-  relation('userId', Users, { onDelete: 'cascade' }),
-]);
+}).constraints((c) => [relation('userId', Users, { onDelete: 'cascade' })])
 
 export default defineSchema({
   users: Users.table,
   posts: Posts.table,
-});
+})
 
 // ========================================
 // 2. In your Convex functions (Convex environment)
 // ========================================
 // convex/users.ts
-import { v } from "convex/values";
-import { mutation as rawMutation, query as rawQuery } from "./_generated/server";
+import { v } from 'convex/values'
+import {
+  mutation as rawMutation,
+  query as rawQuery,
+} from '../_generated/server'
 // ✅ Safe import - no Node.js dependencies
-import { withConstraints } from "./_sql/db";
+import { withConstraints } from '../_sql/db'
 
-const { mutation, query } = withConstraints(rawMutation, rawQuery);
+const { mutation, query } = withConstraints(rawMutation, rawQuery)
 
 export const createUser = mutation({
   args: { email: v.string(), name: v.string() },
   handler: async (ctx, args) => {
     // ✅ All constraints enforced automatically
-    return await ctx.db.insert("users", args);
+    return await ctx.db.insert('users', args)
   },
-});
+})
 
 // ========================================
 // 3. In build scripts or CLI (Node.js environment)
 // ========================================
 // scripts/generate-constraints.js (or package.json scripts)
-import { 
-  parseSchemaFile, 
-  generateConstraintCode, 
-  writeGeneratedCode 
-} from "convex-sql/generator"; // ✅ Separate entry point for Node.js APIs
+import {
+  parseSchemaFile,
+  generateConstraintCode,
+  writeGeneratedCode,
+} from 'convex-sql/generator' // ✅ Separate entry point for Node.js APIs
 
 async function generateConstraints() {
-  const schema = parseSchemaFile("./convex/schema.ts");
-  const code = generateConstraintCode(schema);
-  writeGeneratedCode(code, "./convex/_sql");
+  const schema = parseSchemaFile('./convex/schema.ts')
+  const code = generateConstraintCode(schema)
+  writeGeneratedCode(code, './convex/_sql')
 }
 
-generateConstraints();
+generateConstraints()
 
 // ========================================
 // 4. CLI usage (Node.js environment)
@@ -92,7 +90,7 @@ Exports:
 Benefits:
 ✅ No Node.js imports in Convex functions
 ✅ Clean separation of concerns
-✅ CLI and build scripts can still use full functionality  
+✅ CLI and build scripts can still use full functionality
 ✅ Type safety maintained across all entry points
 ✅ Bundle size optimized for each use case
 */

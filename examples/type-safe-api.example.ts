@@ -1,8 +1,8 @@
 // Example showing the new type-safe constraint API
 
-import { defineSchema } from "convex/server";
-import { v } from "convex/values";
-import { Table } from "convex-sql";
+import { defineSchema } from 'convex/server'
+import { v } from 'convex/values'
+import { Table } from 'convex-sql'
 
 // 1. Define tables with type-safe constraints
 const Users = Table('users', {
@@ -10,10 +10,10 @@ const Users = Table('users', {
   name: v.string(),
   age: v.number(),
 }).constraints((c) => [
-  c.unique('email'),    // ✅ Type-safe: only 'email', 'name', 'age' allowed
-  c.index('name'),      // ✅ Type-safe: IntelliSense shows available fields
-  c.index(['name', 'age'])  // ✅ Type-safe: composite index with field validation
-]);
+  c.unique('email'), // ✅ Type-safe: only 'email', 'name', 'age' allowed
+  c.index(['name'], 'name_idx'), // ✅ Type-safe: IntelliSense shows available fields
+  c.index(['name', 'age'], 'name_age_idx'), // ✅ Type-safe: composite index with field validation
+])
 
 const Posts = Table('posts', {
   title: v.string(),
@@ -21,26 +21,26 @@ const Posts = Table('posts', {
   userId: v.id('users'),
   categoryId: v.optional(v.id('categories')),
 }).constraints((c) => [
-  c.relation('userId', Users, { onDelete: 'cascade' }),        // ✅ Uses table name from Users
+  c.relation('userId', Users, { onDelete: 'cascade' }), // ✅ Uses table name from Users
   c.relation('categoryId', Categories, { onDelete: 'restrict' }), // ✅ References table object
-  c.index(['userId', 'title']),  // ✅ Type-safe composite index
-  c.notNull('title'),           // ✅ Type-safe field validation
-]);
+  c.index(['userId', 'title'], 'user_id_title_idx'), // ✅ Type-safe composite index
+  c.notNull('title'), // ✅ Type-safe field validation
+])
 
 const Categories = Table('categories', {
   name: v.string(),
   slug: v.string(),
 }).constraints((c) => [
-  c.unique('name'),     // ✅ Type-safe: only 'name', 'slug' allowed
-  c.unique('slug'),     // ✅ Multiple unique constraints
-  c.default('slug', '')  // ✅ Type-safe default value
-]);
+  c.unique('name'), // ✅ Type-safe: only 'name', 'slug' allowed
+  c.unique('slug'), // ✅ Multiple unique constraints
+  c.default('slug', ''), // ✅ Type-safe default value
+])
 
 export default defineSchema({
-  users: Users.table,     // ✅ Auto-generated indexes included
-  posts: Posts.table,     // ✅ Auto-generated indexes included
+  users: Users.table, // ✅ Auto-generated indexes included
+  posts: Posts.table, // ✅ Auto-generated indexes included
   categories: Categories.table, // ✅ Auto-generated indexes included
-});
+})
 
 /*
 ✅ Type Safety Benefits:
@@ -68,7 +68,7 @@ export default defineSchema({
 
 Generated Schema Features:
 - users.email (unique index)
-- users.name (regular index)  
+- users.name (regular index)
 - posts.userId_idx (auto-generated from relation)
 - posts.categoryId_idx (auto-generated from relation)
 - posts.[userId, title] (composite index)
@@ -78,7 +78,7 @@ Generated Schema Features:
 Constraint Enforcement:
 - Email uniqueness enforced across users
 - Foreign key validation for userId → users
-- Foreign key validation for categoryId → categories  
+- Foreign key validation for categoryId → categories
 - Cascade delete: deleting user deletes their posts
 - Restrict delete: cannot delete category if posts exist
 */

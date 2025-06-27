@@ -28,8 +28,8 @@ export interface RelationConstraint {
 
 export interface IndexConstraint {
   type: 'index'
-  fields: string | string[]
-  name?: string
+  fields: [string, ...string[]]
+  name: string
 }
 
 export interface NotNullConstraint {
@@ -105,8 +105,8 @@ export interface TypeSafeConstraints<
     }
   ) => RelationConstraint
   index: (
-    fields: (keyof T & string) | (keyof T & string)[],
-    name?: string
+    fields: [keyof T & string, ...(keyof T & string)[]],
+    name: string
   ) => IndexConstraint
   notNull: (field: keyof T & string) => NotNullConstraint
   default: (field: keyof T & string, value: any) => DefaultConstraint

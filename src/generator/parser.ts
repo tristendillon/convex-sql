@@ -166,8 +166,39 @@ export class SchemaParser {
       ts.isIdentifier(node.expression.name) &&
       node.expression.name.text === 'constraints'
     ) {
-      // Extract constraints from the array argument
+      // Extract constraints from the function argument
       const constraintsArg = node.arguments[0]
+      
+      // Handle case where constraints is a function that returns an array
+      if (ts.isArrowFunction(constraintsArg) || ts.isFunctionExpression(constraintsArg)) {
+        const body = constraintsArg.body
+        
+        // Handle arrow function with array return
+        if (ts.isArrayLiteralExpression(body)) {
+          for (const element of body.elements) {
+            const constraint = this.parseConstraintExpression(element)
+            if (constraint) {
+              constraints.push(constraint)
+            }
+          }
+        }
+        
+        // Handle function with return statement
+        if (ts.isBlock(body)) {
+          ts.forEachChild(body, (stmt) => {
+            if (ts.isReturnStatement(stmt) && stmt.expression && ts.isArrayLiteralExpression(stmt.expression)) {
+              for (const element of stmt.expression.elements) {
+                const constraint = this.parseConstraintExpression(element)
+                if (constraint) {
+                  constraints.push(constraint)
+                }
+              }
+            }
+          })
+        }
+      }
+      
+      // Handle direct array argument
       if (ts.isArrayLiteralExpression(constraintsArg)) {
         for (const element of constraintsArg.elements) {
           const constraint = this.parseConstraintExpression(element)
@@ -184,7 +215,13 @@ export class SchemaParser {
   private parseConstraintExpression(node: ts.Node): Constraint | null {
     if (!ts.isCallExpression(node)) return null
 
-    const functionName = this.getFunctionName(node.expression)
+    let functionName = this.getFunctionName(node.expression)
+    
+    // Handle method calls like c.unique('email')
+    if (!functionName && ts.isPropertyAccessExpression(node.expression)) {
+      functionName = node.expression.name.text
+    }
+    
     if (!functionName) return null
 
     switch (functionName) {
@@ -235,8 +272,8 @@ export class SchemaParser {
     if (ts.isStringLiteral(targetArg)) {
       targetTable = targetArg.text
     } else if (ts.isIdentifier(targetArg)) {
-      // This references a table variable - we'd need more sophisticated resolution
-      targetTable = targetArg.text
+      // This references a table variable - convert to lowercase for table name
+      targetTable = targetArg.text.toLowerCase()
     }
 
     if (!targetTable) return null

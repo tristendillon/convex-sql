@@ -1,4 +1,5 @@
-import type { Validator } from 'convex/values'
+import type { ObjectType, VObject, Validator } from 'convex/values'
+import { TableDefinition, defineTable } from 'convex/server'
 import type { Table as ConvexHelpersTable } from 'convex-helpers/server'
 
 // Base constraint types
@@ -26,10 +27,21 @@ export interface RelationConstraint {
   onUpdate?: DeleteAction
 }
 
-export interface IndexConstraint {
+export type IndexConstraint<
+  Fields extends string = string,
+  IndexName extends string = string
+> = {
   type: 'index'
-  fields: [string, ...string[]]
-  name: string
+  fields: [Fields, ...Fields[]]
+  name: IndexName
+}
+
+export type ConstraintToIndexMap<Cs extends readonly Constraint[]> = {
+  [C in Cs[number] as C extends IndexConstraint<any, infer IndexName>
+    ? IndexName
+    : never]: C extends IndexConstraint<infer Fields, any>
+    ? [...Fields[], '_id'] // convex auto-appends _id for tiebreaker
+    : never
 }
 
 export interface NotNullConstraint {
@@ -56,7 +68,7 @@ export interface TableWithConstraints<
   TableName extends string
 > {
   name: TableName
-  table: ReturnType<typeof ConvexHelpersTable>
+  table: TableDefinition<VObject<ObjectType<T>, T>>
   constraints: Constraint[]
   fields: T
   // Re-export convex-helpers Table properties

@@ -1,5 +1,10 @@
-import { Table as ConvexHelpersTable } from 'convex-helpers/server'
-import type { Validator } from 'convex/values'
+import {
+  GenericId,
+  ObjectType,
+  v,
+  VObject,
+  type Validator,
+} from 'convex/values'
 import type {
   Constraint,
   TableWithConstraints,
@@ -10,8 +15,15 @@ import type {
   NotNullConstraint,
   DefaultConstraint,
   DeleteAction,
+  ConstraintToIndexMap,
 } from './types.js'
 import { getAutoIndexFields, getRelationConstraints } from './constraints.js'
+import {
+  defineTable,
+  Expand,
+  GenericTableIndexes,
+  TableDefinition,
+} from 'convex/server'
 
 /**
  * Enhanced Table function that extends convex-helpers Table with SQL-like constraints
@@ -24,25 +36,33 @@ export function Table<
   T extends Record<string, Validator<any, any, any>>,
   TableName extends string
 >(name: TableName, fields: T): TableWithConstraintsBuilder<T, TableName> {
-  // Create the base convex-helpers table
-  const baseTable = ConvexHelpersTable(name, fields)
-
-  return new TableWithConstraintsBuilder(name, fields, baseTable)
+  return new TableWithConstraintsBuilder(name, fields)
 }
+
 
 class TableWithConstraintsBuilder<
   T extends Record<string, Validator<any, any, any>>,
-  TableName extends string
+  TableName extends string,
+  Indexes extends GenericTableIndexes = {}
 > {
   private _constraints: Constraint[] = []
+  private table: TableDefinition<VObject<ObjectType<T>, T>, Indexes>
+  private _id: Validator<GenericId<TableName>>
+  private systemFields: Record<string, Validator<any, any, any>>
+  private withSystemFields: Expand<T & typeof this.systemFields>
+  constructor(public readonly name: TableName, public readonly fields: T) {
+    this.table = defineTable(fields)
+    this._id = v.id(name)
+    this.systemFields = {
+      _id: this._id,
+      _creationTime: v.number(),
+    }
 
-  constructor(
-    public readonly name: TableName,
-    public readonly fields: T,
-    private readonly baseTable: ReturnType<
-      typeof ConvexHelpersTable<T, TableName>
-    >
-  ) {}
+    this.withSystemFields = {
+      ...fields,
+      ...this.systemFields,
+    } as Expand<T & typeof this.systemFields>
+  }
 
   /**
    * Add constraints to the table with type safety
@@ -56,11 +76,16 @@ class TableWithConstraintsBuilder<
     // Call the function with type-safe builders
     this._constraints = constraintsFn(constraintBuilders)
 
+    type Indexes = ConstraintToIndexMap<typeof this._constraints>
+
     // Validate constraints
     this.validateConstraints()
 
     // Create table with auto-generated indexes
-    const tableWithIndexes = this.addAutoIndexes()
+    const tableWithIndexes: TableDefinition<
+      VObject<ObjectType<T>, T>,
+      Indexes
+    > = this.addAutoIndexes()
 
     return {
       name: this.name,
@@ -68,11 +93,11 @@ class TableWithConstraintsBuilder<
       constraints: this._constraints,
       fields: this.fields,
       // Pass through all convex-helpers properties
-      doc: this.baseTable.doc,
-      withSystemFields: this.baseTable.withSystemFields,
-      withoutSystemFields: this.baseTable.withoutSystemFields,
-      systemFields: this.baseTable.systemFields,
-      _id: this.baseTable._id,
+      doc: this.withSystemFields,
+      withSystemFields: this.withSystemFields,
+      withoutSystemFields: this.fields,
+      systemFields: this.systemFields,
+      _id: this._id,
     }
   }
 
@@ -127,7 +152,7 @@ class TableWithConstraintsBuilder<
    * Add auto-generated indexes for constraints
    */
   private addAutoIndexes() {
-    let table = this.baseTable.table
+    let table = this.table
 
     for (const constraint of this._constraints) {
       switch (constraint.type) {
@@ -140,7 +165,7 @@ class TableWithConstraintsBuilder<
 
         case 'relation':
           // Add index for foreign key
-          table = table.index(`sql_relation_${constraint.field}_idx`, [
+          table = table.index(`sql_rel_${constraint.field}_idx`, [
             constraint.field,
           ])
           break
@@ -227,9 +252,9 @@ class TableWithConstraintsBuilder<
 }
 
 // Export helper functions for working with enhanced tables
-export function isTableWithConstraints<T extends Record<string, any>>(
-  table: any
-): table is TableWithConstraints<T, string> {
+export function isTableWithConstraints<
+  T extends Record<string, Validator<any, any, any>>
+>(table: any): table is TableWithConstraints<T, string> {
   return table && typeof table === 'object' && 'constraints' in table
 }
 
@@ -243,30 +268,4 @@ export function getTableAutoIndexes<T extends TableWithConstraints<any, any>>(
   table: T
 ): string[] {
   return getAutoIndexFields(table.constraints)
-}
-
-/**
- * Helper function to create schema objects from enhanced tables
- * Usage: defineSchema(schema(Users, Posts, Documents))
- */
-export function schema(
-  ...tables: TableWithConstraints<any, any>[]
-): Record<string, any> {
-  const schemaObject: Record<string, any> = {}
-
-  for (const table of tables) {
-    schemaObject[table.name] = table.table
-  }
-
-  return schemaObject
-}
-
-/**
- * Alternative helper that allows extracting table entries for spreading
- * Usage: defineSchema({ ...tableEntry(Users), ...tableEntry(Posts) })
- */
-export function tableEntry<T extends TableWithConstraints<any, any>>(
-  table: T
-): Record<T['name'], T['table']> {
-  return { [table.name]: table.table } as Record<T['name'], T['table']>
 }

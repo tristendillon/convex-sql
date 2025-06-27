@@ -4,8 +4,6 @@ export {
   isTableWithConstraints,
   getTableConstraints,
   getTableAutoIndexes,
-  schema,
-  tableEntry,
 } from './core/Table.js'
 export {
   getAutoIndexFields,
@@ -13,15 +11,6 @@ export {
   getUniqueConstraints,
   getExplicitIndexConstraints,
 } from './core/constraints.js'
-
-// Runtime exports
-export {
-  ConstraintEnforcer,
-  withConstraints,
-  createInsertWithConstraints,
-  createUpdateWithConstraints,
-  createDeleteWithConstraints,
-} from './runtime/index.js'
 
 // Type exports
 export type {

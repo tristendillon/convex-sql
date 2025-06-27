@@ -40,8 +40,17 @@ export class CodeGenerator {
   customMutation,
   customCtx,
 } from 'convex-helpers/server/customFunctions'
-import { DataModel, Doc, TableNames } from '../_generated/dataModel'
-import { QueryCtx } from '../_generated/server'
+import { DataModel, Doc, Id, TableNames } from '../_generated/dataModel'
+import { MutationCtx, QueryCtx } from '../_generated/server'
+import {
+  DocumentByName,
+  FunctionVisibility,
+  GenericDatabaseWriter,
+  MutationBuilder,
+  QueryBuilder,
+  WithOptionalSystemFields,
+  WithoutSystemFields,
+} from 'convex/server'
 
 // Type-safe table constraints definition
 type TableConstraints = {
@@ -65,14 +74,17 @@ ${this.generateConstraintHelpers()}
 /**
  * Database wrapper that enforces constraints on insert, replace, and delete operations
  */
-function wrapDb(ctx: any, db: any) {
+function wrapDb(ctx: MutationCtx, db: GenericDatabaseWriter<DataModel>) {
   return {
     ...db,
 
     /**
      * Insert with constraint validation
      */
-    insert: async (table: string, value: any) => {
+    insert: async (
+      table: TableNames,
+      value: WithoutSystemFields<DocumentByName<DataModel, TableNames>>
+    ) => {
 ${insertLogic}
       return await db.insert(table, value)
     },
@@ -80,7 +92,10 @@ ${insertLogic}
     /**
      * Replace (upsert) with constraint validation
      */
-    replace: async (id: string, value: any) => {
+    replace: async (
+      id: Id<TableNames>,
+      value: WithOptionalSystemFields<DocumentByName<DataModel, TableNames>>
+    ) => {
 ${replaceLogic}
       return await db.replace(id, value)
     },
@@ -88,7 +103,7 @@ ${replaceLogic}
     /**
      * Delete with cascade/restrict handling
      */
-    delete: async (id: string) => {
+    delete: async (id: Id<TableNames>) => {
 ${deleteLogic}
       return await db.delete(id)
     },
@@ -98,69 +113,70 @@ ${deleteLogic}
 /**
  * Create a mutation wrapper that injects the wrapped db
  */
-export function createMutationWithConstraints(rawMutation: any) {
+export function createMutationWithConstraints<
+  Visibility extends FunctionVisibility,
+>(rawMutation: MutationBuilder<DataModel, Visibility>) {
   return customMutation(
     rawMutation,
-    customCtx(async (ctx: any) => ({
+    customCtx(async (ctx) => ({
       db: wrapDb(ctx, ctx.db),
     }))
   )
 }
 
 /**
- * Create a query wrapper that injects the wrapped db (queries don't need constraint enforcement but for consistency)
- */
-export function createQueryWithConstraints(rawQuery: any) {
-  return rawQuery // Queries don't need constraint enforcement, just pass through
-}
-
-/**
  * Export constraint-enforced mutation and query functions
  * Use these instead of importing from _generated/server
  */
-export function withConstraints(rawMutation: any, rawQuery: any) {
+export function withConstraints<Visibility extends FunctionVisibility>(
+  rawMutation: MutationBuilder<DataModel, Visibility>,
+  rawQuery: QueryBuilder<DataModel, Visibility>
+) {
   return {
     mutation: createMutationWithConstraints(rawMutation),
-    query: createQueryWithConstraints(rawQuery),
+    query: rawQuery,
   }
 }`
   }
 
   private generateTableConstraintsMap(): string {
-    const constraintsMap: Record<string, any> = {}
-
-    for (const [tableName, table] of Object.entries(this.schema.tables)) {
-      constraintsMap[tableName] = {
-        unique: table.constraints
+    const tables = Object.entries(this.schema.tables)
+      .map(([tableName, table]) => {
+        const uniqueFields = table.constraints
           .filter((c) => c.type === 'unique')
-          .map((c) => (c as UniqueConstraint).field),
-        relations: table.constraints
+          .map((c) => `'${(c as UniqueConstraint).field}'`)
+
+        const relations = table.constraints
           .filter((c) => c.type === 'relation')
           .map((c) => {
             const rel = c as RelationConstraint
-            return {
-              field: rel.field,
-              targetTable: rel.targetTable,
-              onDelete: rel.onDelete || 'restrict',
-              onUpdate: rel.onUpdate || 'restrict',
-            }
-          }),
-      }
-    }
+            return `      {
+        field: '${rel.field}',
+        targetTable: '${rel.targetTable}',
+        onDelete: '${rel.onDelete || 'restrict'}',
+        onUpdate: '${rel.onUpdate || 'restrict'}',
+      }`
+          })
 
-    return JSON.stringify(constraintsMap, null, 2)
+        return `  ${tableName}: {
+    unique: [${uniqueFields.join(', ')}],
+    relations: [${
+      relations.length > 0 ? '\n' + relations.join(',\n') + '\n    ' : ''
+    }],
+  }`
+      })
+      .join(',\n')
+
+    return `{\n${tables},\n}`
   }
 
   private generateConstraintHelpers(): string {
-    return `
-// Validation helper functions
-
-// Helper to validate unique constraints
+    return `// Helper to validate unique constraints
 async function validateUniqueConstraints<T extends TableNames>(
   ctx: QueryCtx,
   table: T,
   data: Partial<Doc<T>>,
-  excludeId?: string
+  excludeId?: Id<T>
 ) {
   const constraints = TABLE_CONSTRAINTS[table]
   if (!constraints || !constraints.unique.length) return
@@ -170,7 +186,7 @@ async function validateUniqueConstraints<T extends TableNames>(
     if (fieldValue !== undefined) {
       const existing = await ctx.db
         .query(table)
-        .withIndex(field, (q) => q.eq(field, fieldValue))
+        .withIndex(\`sql_unique_\$\{field\}_idx\`, (q) => q.eq(field, fieldValue))
         .first()
 
       if (existing && (!excludeId || existing._id !== excludeId)) {
@@ -184,9 +200,9 @@ async function validateUniqueConstraints<T extends TableNames>(
 
 // Helper to validate relation constraints
 async function validateRelationConstraints<T extends TableNames>(
-  ctx: any,
+  ctx: QueryCtx,
   table: T,
-  data: Partial<DataModel[T]['document']>
+  data: Partial<Doc<T>>
 ) {
   const constraints = TABLE_CONSTRAINTS[table]
   if (!constraints || !constraints.relations.length) return
@@ -206,9 +222,9 @@ async function validateRelationConstraints<T extends TableNames>(
 
 // Helper to handle cascade/restrict on delete
 async function handleDeleteConstraints(
-  ctx: any,
+  ctx: MutationCtx,
   targetTable: TableNames,
-  targetId: string
+  targetId: Id<TableNames>
 ) {
   // Find all tables that reference this record
   for (const [sourceTable, constraints] of Object.entries(TABLE_CONSTRAINTS)) {
@@ -218,7 +234,7 @@ async function handleDeleteConstraints(
       if (relation.targetTable === targetTable) {
         const relatedRecords = await ctx.db
           .query(sourceTable)
-          .withIndex(\`\${String(relation.field)}_idx\`, (q: any) =>
+          .withIndex(\`sql_rel_\${String(relation.field)}_idx\`, (q) =>
             q.eq(String(relation.field), targetId)
           )
           .collect()
@@ -255,25 +271,18 @@ async function handleDeleteConstraints(
       }
     }
   }
-}
-
-// Helper to get table name from document ID
-function getTableFromId(id: string): TableNames {
-  // Extract table name from Convex ID format
-  const parts = id.split('|')
-  return parts[0] || ('' as TableNames)
 }`
   }
 
   private generateInsertLogic(): string {
     return `      // Validate constraints before insert
-      await validateUniqueConstraints(ctx, table as TableNames, value)
-      await validateRelationConstraints(ctx, table as TableNames, value)`
+      await validateUniqueConstraints(ctx, table, value)
+      await validateRelationConstraints(ctx, table, value)`
   }
 
   private generateReplaceLogic(): string {
     return `      // Get the table name from the ID
-      const table = getTableFromId(id)
+      const table = id.__tableName
 
       // For replace operations, we need to exclude the current record from unique checks
       await validateUniqueConstraints(ctx, table, value, id)
@@ -282,14 +291,10 @@ function getTableFromId(id: string): TableNames {
 
   private generateDeleteLogic(): string {
     return `      // Get the table name from the ID
-      const table = getTableFromId(id)
+      const table = id.__tableName
 
       // Handle cascade/restrict constraints before delete
       await handleDeleteConstraints(ctx, table, id)`
-  }
-
-  private capitalize(str: string): string {
-    return str.charAt(0).toUpperCase() + str.slice(1)
   }
 }
 

@@ -6,7 +6,6 @@ import type {
   Constraint,
   RelationConstraint,
   UniqueConstraint,
-  IndexConstraint,
 } from '../core/types.js'
 
 /**
@@ -168,11 +167,14 @@ export class SchemaParser {
     ) {
       // Extract constraints from the function argument
       const constraintsArg = node.arguments[0]
-      
+
       // Handle case where constraints is a function that returns an array
-      if (ts.isArrowFunction(constraintsArg) || ts.isFunctionExpression(constraintsArg)) {
+      if (
+        ts.isArrowFunction(constraintsArg) ||
+        ts.isFunctionExpression(constraintsArg)
+      ) {
         const body = constraintsArg.body
-        
+
         // Handle arrow function with array return
         if (ts.isArrayLiteralExpression(body)) {
           for (const element of body.elements) {
@@ -182,11 +184,15 @@ export class SchemaParser {
             }
           }
         }
-        
+
         // Handle function with return statement
         if (ts.isBlock(body)) {
           ts.forEachChild(body, (stmt) => {
-            if (ts.isReturnStatement(stmt) && stmt.expression && ts.isArrayLiteralExpression(stmt.expression)) {
+            if (
+              ts.isReturnStatement(stmt) &&
+              stmt.expression &&
+              ts.isArrayLiteralExpression(stmt.expression)
+            ) {
               for (const element of stmt.expression.elements) {
                 const constraint = this.parseConstraintExpression(element)
                 if (constraint) {
@@ -197,7 +203,7 @@ export class SchemaParser {
           })
         }
       }
-      
+
       // Handle direct array argument
       if (ts.isArrayLiteralExpression(constraintsArg)) {
         for (const element of constraintsArg.elements) {
@@ -216,12 +222,12 @@ export class SchemaParser {
     if (!ts.isCallExpression(node)) return null
 
     let functionName = this.getFunctionName(node.expression)
-    
+
     // Handle method calls like c.unique('email')
     if (!functionName && ts.isPropertyAccessExpression(node.expression)) {
       functionName = node.expression.name.text
     }
-    
+
     if (!functionName) return null
 
     switch (functionName) {
@@ -229,8 +235,6 @@ export class SchemaParser {
         return this.parseUniqueConstraint(node)
       case 'relation':
         return this.parseRelationConstraint(node)
-      case 'index':
-        return this.parseIndexConstraint(node)
       default:
         return null
     }
@@ -304,36 +308,6 @@ export class SchemaParser {
       targetTable,
       onDelete: onDelete as any,
       onUpdate: onUpdate as any,
-    }
-  }
-
-  private parseIndexConstraint(
-    node: ts.CallExpression
-  ): IndexConstraint | null {
-    const fieldsArg = node.arguments[0]
-    const nameArg = node.arguments[1]
-
-    const fields: string[] = []
-
-    if (ts.isStringLiteral(fieldsArg)) {
-      fields.push(fieldsArg.text)
-    } else if (ts.isArrayLiteralExpression(fieldsArg)) {
-      for (const element of fieldsArg.elements) {
-        const field = this.extractStringLiteral(element)
-        if (field) {
-          fields.push(field)
-        }
-      }
-    } else {
-      return null
-    }
-
-    const name = this.extractStringLiteral(nameArg)
-
-    return {
-      type: 'index',
-      fields: fields as [string, ...string[]],
-      name: name,
     }
   }
 

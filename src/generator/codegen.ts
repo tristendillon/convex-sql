@@ -5,7 +5,6 @@ import type {
   TableMetadata,
   RelationConstraint,
   UniqueConstraint,
-  IndexConstraint,
   GeneratedConstraintCode,
 } from '../core/types.js'
 

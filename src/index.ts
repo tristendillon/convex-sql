@@ -9,7 +9,6 @@ export {
   getAutoIndexFields,
   getRelationConstraints,
   getUniqueConstraints,
-  getExplicitIndexConstraints,
 } from './core/constraints.js'
 
 // Type exports
@@ -19,7 +18,6 @@ export type {
   DeleteAction,
   UniqueConstraint,
   RelationConstraint,
-  IndexConstraint,
   NotNullConstraint,
   DefaultConstraint,
   TableWithConstraints,

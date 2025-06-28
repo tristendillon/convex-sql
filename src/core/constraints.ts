@@ -2,7 +2,6 @@ import type {
   Constraint,
   UniqueConstraint,
   RelationConstraint,
-  IndexConstraint,
 } from './types.js'
 
 /**
@@ -22,13 +21,7 @@ export function getAutoIndexFields(constraints: Constraint[]): string[] {
       case 'relation':
         indexFields.add(constraint.field)
         break
-      case 'index':
-        if (typeof constraint.fields === 'string') {
-          indexFields.add(constraint.fields)
-        } else {
-          // For composite indexes, we don't add individual fields to auto-index
-          // as they're explicitly defined
-        }
+      default:
         break
     }
   }
@@ -54,13 +47,4 @@ export function getUniqueConstraints(
   constraints: Constraint[]
 ): UniqueConstraint[] {
   return constraints.filter((c): c is UniqueConstraint => c.type === 'unique')
-}
-
-/**
- * Helper to get all index constraints (excluding auto-generated ones)
- */
-export function getExplicitIndexConstraints(
-  constraints: Constraint[]
-): IndexConstraint[] {
-  return constraints.filter((c): c is IndexConstraint => c.type === 'index')
 }

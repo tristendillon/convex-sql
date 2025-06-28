@@ -23,7 +23,6 @@ export type {
   TableWithConstraints,
   TableMetadata,
   SchemaMetadata,
-  GeneratedConstraintCode,
 } from './core/types.js'
 
 // Re-export convex-helpers for convenience

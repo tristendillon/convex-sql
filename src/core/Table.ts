@@ -275,7 +275,7 @@ export class TableDefinitionWithConstraints<
         field: field as string,
       }),
 
-      relation: <TargetTable extends string>(
+      relation: <TargetTable extends TableDefinitionWithConstraints<any, any, any, any, any>>(
         field: ExtractFieldPaths<DocumentType>,
         targetTable: TargetTable,
         options?: {
@@ -285,7 +285,7 @@ export class TableDefinitionWithConstraints<
       ): RelationConstraint => ({
         type: 'relation',
         field: field as string,
-        targetTable: targetTable,
+        targetTable: targetTable.name,
         onDelete: options?.onDelete,
         onUpdate: options?.onUpdate,
       }),

@@ -5,7 +5,6 @@ import type {
   TableMetadata,
   RelationConstraint,
   UniqueConstraint,
-  GeneratedConstraintCode,
 } from '../core/types.js'
 
 /**
@@ -13,18 +12,6 @@ import type {
  */
 export class CodeGenerator {
   constructor(private schema: SchemaMetadata) {}
-
-  /**
-   * Generate all constraint-related code
-   */
-  generateAll(): GeneratedConstraintCode {
-    return {
-      validationFunctions: '', // No longer needed
-      indexDefinitions: '', // No longer needed
-      relationHelpers: '', // No longer needed
-      mutationWrappers: this.generateDbWrapper(),
-    }
-  }
 
   /**
    * Generate the database wrapper that intercepts insert/replace/delete operations
@@ -300,20 +287,15 @@ async function handleDeleteConstraints(
 /**
  * Generate constraint code from schema metadata
  */
-export function generateConstraintCode(
-  schema: SchemaMetadata
-): GeneratedConstraintCode {
+export function generateConstraintCode(schema: SchemaMetadata): string {
   const generator = new CodeGenerator(schema)
-  return generator.generateAll()
+  return generator.generateDbWrapper()
 }
 
 /**
  * Write generated code to files
  */
-export function writeGeneratedCode(
-  code: GeneratedConstraintCode,
-  outputDir: string
-): void {
+export function writeGeneratedCode(code: string, outputDir: string): void {
   // Ensure output directory exists
   if (!existsSync(outputDir)) {
     mkdirSync(outputDir, { recursive: true })
@@ -322,6 +304,6 @@ export function writeGeneratedCode(
   // Write only the database wrapper
   writeFileSync(
     join(outputDir, 'db.ts'),
-    `// Auto-generated database wrapper with constraints\n// Do not edit manually\n\n${code.mutationWrappers}`
+    `// Auto-generated database wrapper with constraints\n// Do not edit manually\n\n${code}`
   )
 }

@@ -6,6 +6,7 @@ import {
   defineTable,
 } from 'convex/server'
 import type { Table as ConvexHelpersTable } from 'convex-helpers/server'
+import { TableDefinitionWithConstraints } from './Table'
 
 // Base constraint types
 export type ConstraintType =
@@ -52,7 +53,9 @@ export type Constraint =
 // Type-safe constraint builders interface
 export interface TypeSafeConstraints<FieldPaths extends string> {
   unique: (field: FieldPaths) => UniqueConstraint
-  relation: <TargetTable extends string>(
+  relation: <
+    TargetTable extends TableDefinitionWithConstraints<any, any, any, any, any>
+  >(
     field: FieldPaths,
     targetTable: TargetTable,
     options?: {
@@ -94,12 +97,4 @@ export interface TableMetadata {
 export interface SchemaMetadata {
   tables: Record<string, TableMetadata>
   relations: RelationConstraint[]
-}
-
-// Generated code interfaces
-export interface GeneratedConstraintCode {
-  validationFunctions: string
-  indexDefinitions: string
-  relationHelpers: string
-  mutationWrappers: string
 }

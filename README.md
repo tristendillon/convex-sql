@@ -4,6 +4,8 @@ SQL-like constraints & relations for Convex that give you relational DB ergonomi
 
 ---
 
+> **For local development setup**, see [SETUP.md](./SETUP.md) for configuration instructions.
+
 ## 📌 Why?
 
 I love Convex’s NoSQL style — but for many projects, I still end up recreating relational patterns.

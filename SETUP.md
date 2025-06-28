@@ -24,6 +24,8 @@ cd app
 cd ..
 git clone https://github.com/tristendillon/convex-sql.git
 cd convex-sql
+npm build
+# or
 pnpm build
 ```
 
@@ -69,9 +71,6 @@ pnpm exec convex-sql watch
 
 # Validate your schema
 pnpm exec convex-sql validate
-
-# Initialize convex-sql in your project
-pnpm exec convex-sql init
 ```
 
 Or with npm:

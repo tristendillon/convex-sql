@@ -1,7 +1,5 @@
 // Core exports
-export {
-  Table,
-} from './core/Table.js'
+export { Table } from './core/Table.js'
 
 // Type exports
 export type {
@@ -9,5 +7,4 @@ export type {
   DeleteAction,
   UniqueConstraint,
   RelationConstraint,
-  TableWithConstraints,
 } from './core/types.js'

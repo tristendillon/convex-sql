@@ -1,6 +1,6 @@
 {
   "name": "convex-sql",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "SQL-like constraints and relations for Convex",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

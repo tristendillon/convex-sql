@@ -36,6 +36,7 @@ export class CodeGenerator {
           return {
             field: c.field,
             targetTable: c.targetTable,
+            targetField: c.targetField,
             onDelete: c.onDelete || 'restrict',
             onUpdate: c.onUpdate || 'restrict',
           }
@@ -80,27 +81,28 @@ import {
   WithoutSystemFields,
 } from 'convex/server'
 import { GenericId } from 'convex/values'
+import { DeleteAction } from 'convex-sql'
     `
 
     const tableConstraintsType = `
-    type TableConstraints = {
+type TableConstraints = {
   [T in TableNames]?: {
     unique?: Array<keyof WithoutSystemFields<Doc<T>>>
-    relations?: Array<{
-      field: keyof WithoutSystemFields<Doc<T>>
-      targetTable: TableNames
-      onDelete?: 'cascade' | 'restrict' | 'setNull' | 'setDefault'
-      onUpdate?: 'cascade' | 'restrict' | 'setNull' | 'setDefault'
-    }>
+    relations?: Array<
+      {
+        field: keyof WithoutSystemFields<Doc<T>>
+      } & {
+        targetTable: TableNames
+        targetField?: keyof WithoutSystemFields<Doc<any>>
+        onDelete?: DeleteAction
+        onUpdate?: DeleteAction
+      }
+    >
   }
 }
     `
     const staticWrapperCode = `
     // STATIC WRAPPER CODE... WILL NOT BE REGENERATED EVERY TIME.
-
-function isSystemField(field: string) {
-  return field === '_id' || field === '_creationTime'
-}
 
 // Validation helper functions
 // Helper to validate unique constraints
@@ -144,7 +146,8 @@ async function validateRelationConstraints<T extends TableNames>(
   for (const relation of constraints.relations) {
     const value = data[relation.field]
 
-    if (value && !isSystemField(String(relation.field))) {
+    // if the target field is not set, related field is the _id of the table
+    if (!relation.targetField) {
       const target = await ctx.db.get(value as unknown as Id<T>)
       if (!target) {
         throw new Error(
@@ -152,10 +155,14 @@ async function validateRelationConstraints<T extends TableNames>(
         )
       }
     } else {
-      const idxName = \`convex_sql_\$\{String(relation.field)\}\`
+      const idxName = \`convex_sql_\$\{String(relation.targetField)\}\`
+      console.log(idxName)
+      console.log(relation)
       const target = await ctx.db
         .query(relation.targetTable)
-        .withIndex(idxName as any, (q) => q.eq(String(relation.field), value))
+        .withIndex(idxName as any, (q) =>
+          q.eq(String(relation.targetField), value)
+        )
         .first()
       if (!target) {
         throw new Error(

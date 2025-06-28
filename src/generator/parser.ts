@@ -3,12 +3,12 @@ import { existsSync } from 'fs'
 import type {
   SchemaMetadata,
   TableMetadata,
-  Constraint,
-  RelationConstraint,
   UniqueConstraint,
   NotNullConstraint,
   DefaultConstraint,
   DeleteAction,
+  RelationConstraintMeta,
+  ConstrainMeta,
 } from '../core/types.js'
 
 /**
@@ -35,9 +35,9 @@ export class SchemaParser {
    */
   parseSchema(): SchemaMetadata {
     const tables: Record<string, TableMetadata> = {}
-    const relations: RelationConstraint[] = []
+    const relations: RelationConstraintMeta[] = []
     const variableToTableMap: Record<string, string> = {}
-    
+
     // First pass: collect all table variable declarations
     ts.forEachChild(this.sourceFile, (node) => {
       this.collectTableVariables(node, variableToTableMap)
@@ -50,7 +50,7 @@ export class SchemaParser {
 
     // Third pass: parse schema export to understand table mapping
     const schemaExport = this.parseSchemaExport(variableToTableMap)
-    
+
     // Update table metadata with schema export information
     for (const [exportKey, variableName] of Object.entries(schemaExport)) {
       if (tables[variableName]) {
@@ -73,8 +73,10 @@ export class SchemaParser {
       for (const declaration of node.declarationList.declarations) {
         if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
           const variableName = this.getVariableName(declaration)
-          const tableName = this.extractTableNameFromCall(declaration.initializer)
-          
+          const tableName = this.extractTableNameFromCall(
+            declaration.initializer
+          )
+
           if (variableName && tableName) {
             variableToTableMap[variableName] = tableName
           }
@@ -83,20 +85,25 @@ export class SchemaParser {
     }
 
     // Recursively visit child nodes
-    ts.forEachChild(node, (child) => this.collectTableVariables(child, variableToTableMap))
+    ts.forEachChild(node, (child) =>
+      this.collectTableVariables(child, variableToTableMap)
+    )
   }
 
   private visitNode(
     node: ts.Node,
     tables: Record<string, TableMetadata>,
-    relations: RelationConstraint[],
+    relations: RelationConstraintMeta[],
     variableToTableMap: Record<string, string>
   ): void {
     // Look for variable declarations that call Table()
     if (ts.isVariableStatement(node)) {
       for (const declaration of node.declarationList.declarations) {
         if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
-          const tableMetadata = this.extractTableFromDeclaration(declaration, variableToTableMap)
+          const tableMetadata = this.extractTableFromDeclaration(
+            declaration,
+            variableToTableMap
+          )
           if (tableMetadata) {
             const variableName = this.getVariableName(declaration)
             if (variableName) {
@@ -104,7 +111,7 @@ export class SchemaParser {
 
               // Extract relations for global tracking
               const tableRelations = tableMetadata.constraints.filter(
-                (c): c is RelationConstraint => c.type === 'relation'
+                (c): c is RelationConstraintMeta => c.type === 'relation'
               )
               relations.push(...tableRelations)
             }
@@ -114,7 +121,9 @@ export class SchemaParser {
     }
 
     // Recursively visit child nodes
-    ts.forEachChild(node, (child) => this.visitNode(child, tables, relations, variableToTableMap))
+    ts.forEachChild(node, (child) =>
+      this.visitNode(child, tables, relations, variableToTableMap)
+    )
   }
 
   private getVariableName(declaration: ts.VariableDeclaration): string | null {
@@ -143,7 +152,7 @@ export class SchemaParser {
 
     const tableName = this.extractStringLiteral(callExpression.arguments[0])
     if (!tableName) return null
-    
+
     const variableName = this.getVariableName(declaration)
     if (!variableName) return null
 
@@ -220,8 +229,11 @@ export class SchemaParser {
     return node.getText(this.sourceFile)
   }
 
-  private extractConstraintsFromExpression(node: ts.Node, variableToTableMap: Record<string, string>): Constraint[] {
-    const constraints: Constraint[] = []
+  private extractConstraintsFromExpression(
+    node: ts.Node,
+    variableToTableMap: Record<string, string>
+  ): ConstrainMeta[] {
+    const constraints: ConstrainMeta[] = []
 
     // Recursively search for constraints calls in the entire expression tree
     const findConstraints = (n: ts.Node): void => {
@@ -245,7 +257,10 @@ export class SchemaParser {
           // Handle arrow function with array return
           if (ts.isArrayLiteralExpression(body)) {
             for (const element of body.elements) {
-              const constraint = this.parseConstraintExpression(element, variableToTableMap)
+              const constraint = this.parseConstraintExpression(
+                element,
+                variableToTableMap
+              )
               if (constraint) {
                 constraints.push(constraint)
               }
@@ -261,7 +276,10 @@ export class SchemaParser {
                 ts.isArrayLiteralExpression(stmt.expression)
               ) {
                 for (const element of stmt.expression.elements) {
-                  const constraint = this.parseConstraintExpression(element, variableToTableMap)
+                  const constraint = this.parseConstraintExpression(
+                    element,
+                    variableToTableMap
+                  )
                   if (constraint) {
                     constraints.push(constraint)
                   }
@@ -274,14 +292,17 @@ export class SchemaParser {
         // Handle direct array argument
         if (ts.isArrayLiteralExpression(constraintsArg)) {
           for (const element of constraintsArg.elements) {
-            const constraint = this.parseConstraintExpression(element, variableToTableMap)
+            const constraint = this.parseConstraintExpression(
+              element,
+              variableToTableMap
+            )
             if (constraint) {
               constraints.push(constraint)
             }
           }
         }
       }
-      
+
       // Continue searching in child nodes
       ts.forEachChild(n, findConstraints)
     }
@@ -290,7 +311,10 @@ export class SchemaParser {
     return constraints
   }
 
-  private parseConstraintExpression(node: ts.Node, variableToTableMap: Record<string, string>): Constraint | null {
+  private parseConstraintExpression(
+    node: ts.Node,
+    variableToTableMap: Record<string, string>
+  ): ConstrainMeta | null {
     if (!ts.isCallExpression(node)) return null
 
     let functionName = this.getFunctionName(node.expression)
@@ -356,7 +380,7 @@ export class SchemaParser {
   ): DefaultConstraint | null {
     const fieldArg = node.arguments[0]
     const valueArg = node.arguments[1]
-    
+
     const field = this.extractStringLiteral(fieldArg)
     if (!field) return null
 
@@ -374,7 +398,7 @@ export class SchemaParser {
   private parseRelationConstraint(
     node: ts.CallExpression,
     variableToTableMap: Record<string, string>
-  ): RelationConstraint | null {
+  ): RelationConstraintMeta | null {
     const fieldArg = node.arguments[0]
     const targetArg = node.arguments[1]
     const optionsArg = node.arguments[2]
@@ -389,12 +413,14 @@ export class SchemaParser {
     } else if (ts.isIdentifier(targetArg)) {
       // This references a table variable - look up the actual table name
       const variableName = targetArg.text
-      targetTable = variableToTableMap[variableName] || variableName.toLowerCase()
+      targetTable =
+        variableToTableMap[variableName] || variableName.toLowerCase()
     }
 
     if (!targetTable) return null
 
     // Extract options if present
+    let targetField: string | undefined
     let onDelete: DeleteAction | undefined
     let onUpdate: DeleteAction | undefined
 
@@ -405,10 +431,12 @@ export class SchemaParser {
           ts.isIdentifier(property.name)
         ) {
           const value = this.extractStringLiteral(property.initializer)
-          if (property.name.text === 'onDelete') {
-            onDelete = value as DeleteAction || undefined
+          if (property.name.text === 'targetField') {
+            targetField = value || undefined
+          } else if (property.name.text === 'onDelete') {
+            onDelete = (value as DeleteAction) || undefined
           } else if (property.name.text === 'onUpdate') {
-            onUpdate = value as DeleteAction || undefined
+            onUpdate = (value as DeleteAction) || undefined
           }
         }
       }
@@ -418,12 +446,13 @@ export class SchemaParser {
       type: 'relation',
       field,
       targetTable,
+      targetField,
       onDelete,
       onUpdate,
     }
   }
 
-  private getAutoIndexFields(constraints: Constraint[]): string[] {
+  private getAutoIndexFields(constraints: ConstrainMeta[]): string[] {
     const autoIndexes = new Set<string>()
 
     for (const constraint of constraints) {
@@ -438,15 +467,19 @@ export class SchemaParser {
   /**
    * Parse the schema export (defineSchema call) to understand table mappings
    */
-  private parseSchemaExport(_variableToTableMap: Record<string, string>): Record<string, string> {
+  private parseSchemaExport(
+    _variableToTableMap: Record<string, string>
+  ): Record<string, string> {
     const schemaExport: Record<string, string> = {}
 
     // Look for export default defineSchema() calls
     const exportStatements = this.findExportStatements()
-    
+
     for (const exportStmt of exportStatements) {
       if (this.isDefineSchemaCall(exportStmt)) {
-        const tableMapping = this.extractTableMappingFromDefineSchema(exportStmt as ts.ExportAssignment)
+        const tableMapping = this.extractTableMappingFromDefineSchema(
+          exportStmt as ts.ExportAssignment
+        )
         Object.assign(schemaExport, tableMapping)
       }
     }
@@ -456,47 +489,53 @@ export class SchemaParser {
 
   private findExportStatements(): ts.ExportAssignment[] {
     const exports: ts.ExportAssignment[] = []
-    
+
     const visit = (node: ts.Node) => {
       if (ts.isExportAssignment(node) && node.isExportEquals === false) {
         exports.push(node)
       }
       ts.forEachChild(node, visit)
     }
-    
+
     visit(this.sourceFile)
     return exports
   }
 
   private isDefineSchemaCall(node: ts.Node): boolean {
     if (!ts.isExportAssignment(node)) return false
-    
+
     const expression = node.expression
     if (!ts.isCallExpression(expression)) return false
-    
-    return ts.isIdentifier(expression.expression) && 
-           expression.expression.text === 'defineSchema'
+
+    return (
+      ts.isIdentifier(expression.expression) &&
+      expression.expression.text === 'defineSchema'
+    )
   }
 
-  private extractTableMappingFromDefineSchema(node: ts.ExportAssignment): Record<string, string> {
+  private extractTableMappingFromDefineSchema(
+    node: ts.ExportAssignment
+  ): Record<string, string> {
     const mapping: Record<string, string> = {}
-    
+
     if (!ts.isCallExpression(node.expression)) return mapping
-    
+
     const firstArg = node.expression.arguments[0]
     if (!ts.isObjectLiteralExpression(firstArg)) return mapping
-    
+
     for (const property of firstArg.properties) {
       if (ts.isPropertyAssignment(property)) {
         const key = this.getPropertyKey(property)
-        const variableName = this.extractVariableFromToConvexTableCall(property.initializer)
-        
+        const variableName = this.extractVariableFromToConvexTableCall(
+          property.initializer
+        )
+
         if (key && variableName) {
           mapping[key] = variableName
         }
       }
     }
-    
+
     return mapping
   }
 
@@ -511,14 +550,16 @@ export class SchemaParser {
 
   private extractVariableFromToConvexTableCall(node: ts.Node): string | null {
     if (!ts.isCallExpression(node)) return null
-    
-    if (ts.isPropertyAccessExpression(node.expression) &&
-        ts.isIdentifier(node.expression.name) &&
-        node.expression.name.text === 'toConvexTable' &&
-        ts.isIdentifier(node.expression.expression)) {
+
+    if (
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.name) &&
+      node.expression.name.text === 'toConvexTable' &&
+      ts.isIdentifier(node.expression.expression)
+    ) {
       return node.expression.expression.text
     }
-    
+
     return null
   }
 }

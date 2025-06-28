@@ -1,12 +1,13 @@
 import type { ObjectType, VObject, Validator } from 'convex/values'
-import {
-  SearchIndexConfig,
-  TableDefinition,
-  VectorIndexConfig,
-  defineTable,
-} from 'convex/server'
+import { SystemFields, TableDefinition } from 'convex/server'
 import type { Table as ConvexHelpersTable } from 'convex-helpers/server'
 import { TableDefinitionWithConstraints } from './Table'
+
+export type ExtractFieldPaths<T extends Validator<any, any, any>> =
+  // Add in the system fields available in index definitions.
+  // This should be everything except for `_id` because thats added to indexes
+  // automatically.
+  T['fieldPaths'] | keyof SystemFields
 
 // Base constraint types
 export type DeleteAction = 'cascade' | 'restrict' | 'setNull' | 'setDefault'
@@ -17,10 +18,21 @@ export interface UniqueConstraint {
   field: string
 }
 
-export interface RelationConstraint<TableName extends string = string> {
+export interface RelationConstraint {
   type: 'relation'
   field: string
-  targetTable: TableName
+  targetTable: TableDefinitionWithConstraints<any, any, any, any, any>
+  targetField?: string
+  onDelete?: DeleteAction
+  onUpdate?: DeleteAction
+}
+
+// Separate type for relation constraint meta for parsing since the parsing cant actually have the object
+export interface RelationConstraintMeta<TargetTable extends string = string> {
+  type: 'relation'
+  field: string
+  targetTable: TargetTable
+  targetField?: string
   onDelete?: DeleteAction
   onUpdate?: DeleteAction
 }
@@ -42,6 +54,12 @@ export type Constraint =
   | NotNullConstraint
   | DefaultConstraint
 
+export type ConstrainMeta =
+  | RelationConstraintMeta
+  | UniqueConstraint
+  | NotNullConstraint
+  | DefaultConstraint
+
 // Type-safe constraint builders interface
 export interface TypeSafeConstraints<FieldPaths extends string> {
   unique: (field: FieldPaths) => UniqueConstraint
@@ -51,31 +69,12 @@ export interface TypeSafeConstraints<FieldPaths extends string> {
     field: FieldPaths,
     targetTable: TargetTable,
     options?: {
+      targetField?: ExtractFieldPaths<TargetTable['fields']>
       onDelete?: DeleteAction
       onUpdate?: DeleteAction
     }
   ) => RelationConstraint
-  notNull: (field: FieldPaths) => NotNullConstraint
   default: (field: FieldPaths, value: any) => DefaultConstraint
-}
-
-// Enhanced table definition that includes constraints
-export interface TableWithConstraints<
-  T extends Record<string, Validator<any, any, any>>,
-  TableName extends string
-> {
-  name: TableName
-  table: TableDefinition<VObject<ObjectType<T>, T>>
-  constraints: Constraint[]
-  fields: T
-  // Re-export convex-helpers Table properties
-  doc: ReturnType<typeof ConvexHelpersTable>['doc']
-  withSystemFields: ReturnType<typeof ConvexHelpersTable>['withSystemFields']
-  withoutSystemFields: ReturnType<
-    typeof ConvexHelpersTable
-  >['withoutSystemFields']
-  systemFields: ReturnType<typeof ConvexHelpersTable>['systemFields']
-  _id: ReturnType<typeof ConvexHelpersTable>['_id']
 }
 
 // Metadata extracted from schema parsing
@@ -84,11 +83,11 @@ export interface TableMetadata {
   variableName?: string // The variable name (e.g., 'Users' from const Users = Table(...))
   exportKey?: string // The key used in defineSchema export (e.g., 'users' from { users: Users.toConvexTable() })
   fields: Record<string, any>
-  constraints: Constraint[]
+  constraints: ConstrainMeta[]
   autoIndexes: string[] // Fields that get auto-indexes from relations
 }
 
 export interface SchemaMetadata {
   tables: Record<string, TableMetadata>
-  relations: RelationConstraint[]
+  relations: RelationConstraintMeta[]
 }

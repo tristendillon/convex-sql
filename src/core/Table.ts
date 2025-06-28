@@ -9,10 +9,10 @@ import type {
   Constraint,
   UniqueConstraint,
   RelationConstraint,
-  NotNullConstraint,
   DefaultConstraint,
   DeleteAction,
   TypeSafeConstraints,
+  ExtractFieldPaths,
 } from './types.js'
 import {
   Expand,
@@ -21,16 +21,9 @@ import {
   GenericTableVectorIndexes,
   IndexTiebreakerField,
   SearchIndexConfig,
-  SystemFields,
   TableDefinition,
   VectorIndexConfig,
 } from 'convex/server'
-
-type ExtractFieldPaths<T extends Validator<any, any, any>> =
-  // Add in the system fields available in index definitions.
-  // This should be everything except for `_id` because thats added to indexes
-  // automatically.
-  T['fieldPaths'] | keyof SystemFields
 
 export function isValidator(v: any): v is GenericValidator {
   return !!v.isConvexValidator
@@ -190,6 +183,10 @@ export class TableDefinitionWithConstraints<
     SearchIndexes,
     VectorIndexes
   > {
+    // Dont add the same index twice
+    if (this.indexes.find((idx) => idx.indexDescriptor === name)) {
+      return this
+    }
     this.indexes.push({
       indexDescriptor: name,
       fields: fields,
@@ -230,6 +227,10 @@ export class TableDefinitionWithConstraints<
     >,
     VectorIndexes
   > {
+    // Dont add the same index twice
+    if (this.searchIndexes.find((idx) => idx.indexDescriptor === name)) {
+      return this
+    }
     this.searchIndexes.push({
       indexDescriptor: name,
       searchField: indexConfig.searchField,
@@ -272,6 +273,10 @@ export class TableDefinitionWithConstraints<
         >
     >
   > {
+    // Dont add the same index twice
+    if (this.vectorIndexes.find((idx) => idx.indexDescriptor === name)) {
+      return this
+    }
     this.vectorIndexes.push({
       indexDescriptor: name,
       vectorField: indexConfig.vectorField,
@@ -352,20 +357,17 @@ export class TableDefinitionWithConstraints<
         field: ExtractFieldPaths<DocumentType>,
         targetTable: TargetTable,
         options?: {
+          targetField?: ExtractFieldPaths<TargetTable['fields']>
           onDelete?: DeleteAction
           onUpdate?: DeleteAction
         }
       ): RelationConstraint => ({
         type: 'relation',
         field: field as string,
-        targetTable: targetTable.name,
+        targetTable: targetTable,
+        targetField: options?.targetField,
         onDelete: options?.onDelete,
         onUpdate: options?.onUpdate,
-      }),
-
-      notNull: (field: ExtractFieldPaths<DocumentType>): NotNullConstraint => ({
-        type: 'notNull',
-        field: field as string,
       }),
 
       default: (
@@ -390,26 +392,22 @@ export class TableDefinitionWithConstraints<
     VectorIndexes
   > {
     for (const constraint of this._constraints) {
-      if (
-        this.indexes.find(
-          (idx) => idx.indexDescriptor === `convex_sql_${constraint.field}`
-        )
-      ) {
-        continue
-      }
       switch (constraint.type) {
         case 'unique':
           // Add unique index
-          this.index(`convex_sql_${constraint.field}`, [
-            constraint.field as any,
-          ]) as any
+          this.index(`convex_sql_${constraint.field}`, [constraint.field])
           break
 
         case 'relation':
-          // Add index for foreign key
-          this.index(`convex_sql_${constraint.field}`, [
-            constraint.field as any,
-          ]) as any
+          if (constraint.targetField) {
+            // Add index for foreign key on the target table if it is not using the _id field
+            const targetTable = constraint.targetTable
+            targetTable.index(`convex_sql_${constraint.targetField}`, [
+              constraint.targetField,
+            ])
+          } else {
+            this.index(`convex_sql_${constraint.field}`, [constraint.field])
+          }
           break
         default:
           break
@@ -450,6 +448,7 @@ export class TableDefinitionWithConstraints<
                 `Available fields: ${fieldNames.join(', ')}`
             )
           }
+
           break
         default:
           break

@@ -39,6 +39,22 @@ export function isValidator(v: any): v is GenericValidator {
 /**
  * Enhanced Table function that extends convex-helpers Table with SQL-like constraints
  *
+ * @example
+ * ```ts
+ * const users = Table("users", {
+ *   name: v.string(),
+ *   email: v.string(),
+ *   age: v.number()
+ * }).constraints(c => [
+ *   c.unique("email"), // Add unique constraint on email
+ *   c.notNull("name"), // Name cannot be null
+ *   c.default("age", 18), // Default age to 18
+ *   c.relation("userId", Users, { // Add foreign key relation
+ *     onDelete: "restrict"
+ *   })
+ * ])
+ * ```
+ *
  * @param name The table name
  * @param fields Table fields as you'd pass to defineTable
  * @returns Enhanced table object with constraint support
@@ -105,6 +121,22 @@ export type SearchIndex = {
   filterFields: string[]
 }
 
+/**
+ * A table definition with constraints and indexes.
+ *
+ * This class extends Convex's table definition to add support for:
+ * - SQL-like constraints (unique, foreign key, etc.)
+ * - Automatic index generation based on constraints
+ *
+ * Create a new table definition using the {@link Table} function.
+ *
+ * @typeParam TableName - The name of the table in convex
+ * @typeParam DocumentType - The validator type for documents in this table
+ * @typeParam Indexes - Type information about indexes on this table
+ * @typeParam SearchIndexes - Type information about search indexes
+ * @typeParam VectorIndexes - Type information about vector indexes
+ */
+
 export class TableDefinitionWithConstraints<
   TableName extends string,
   DocumentType extends Validator<any, any, any> = Validator<any, any, any>,
@@ -128,6 +160,16 @@ export class TableDefinitionWithConstraints<
     this.validator = fields
   }
 
+  /**
+   * Add an index to the table.
+   *
+   * This method is equivalent to the index method in Convex's TableDefinition.
+   * It allows you to create an index on one or more fields to optimize queries.
+   *
+   * @param name - The name of the index
+   * @param fields - Array of field paths to index
+   * @returns The table definition with the new index
+   */
   index<
     IndexName extends string,
     FirstFieldPath extends ExtractFieldPaths<DocumentType>,
@@ -138,8 +180,6 @@ export class TableDefinitionWithConstraints<
   ): TableDefinitionWithConstraints<
     TableName,
     DocumentType,
-    // Update `Indexes` to include the new index and use `Expand` to make the
-    // types look pretty in editors.
     Expand<
       Indexes &
         Record<
@@ -157,6 +197,16 @@ export class TableDefinitionWithConstraints<
     return this
   }
 
+  /**
+   * Add a search index to the table.
+   *
+   * This method is equivalent to the searchIndex method in Convex's TableDefinition.
+   * It creates a search index on a text field to enable full-text search queries.
+   *
+   * @param name - The name of the search index
+   * @param indexConfig - Configuration object specifying the search field and optional filter fields
+   * @returns The table definition with the new search index
+   */
   searchIndex<
     IndexName extends string,
     SearchField extends ExtractFieldPaths<DocumentType>,
@@ -168,8 +218,6 @@ export class TableDefinitionWithConstraints<
     TableName,
     DocumentType,
     Indexes,
-    // Update `SearchIndexes` to include the new index and use `Expand` to make
-    // the types look pretty in editors.
     Expand<
       SearchIndexes &
         Record<
@@ -190,6 +238,16 @@ export class TableDefinitionWithConstraints<
     return this
   }
 
+  /**
+   * Add a vector index to the table.
+   *
+   * This method is equivalent to the vectorIndex method in Convex's TableDefinition.
+   * It creates a vector index to enable similarity search on vector embeddings.
+   *
+   * @param name - The name of the vector index
+   * @param indexConfig - Configuration object specifying the vector field, dimensions and optional filter fields
+   * @returns The table definition with the new vector index
+   */
   vectorIndex<
     IndexName extends string,
     VectorField extends ExtractFieldPaths<DocumentType>,
@@ -223,6 +281,11 @@ export class TableDefinitionWithConstraints<
     return this
   }
 
+  /**
+   * Add constraints to the table
+   * @param constraintsFn - A function that returns an array of constraints
+   * @returns The table definition with constraints
+   */
   constraints(
     constraintsFn: (
       c: TypeSafeConstraints<ExtractFieldPaths<DocumentType>>
@@ -244,6 +307,11 @@ export class TableDefinitionWithConstraints<
   get [Symbol.toStringTag]() {
     return 'TableDefinition'
   }
+
+  /**
+   * Export the table definition
+   * @returns The table definition
+   */
 
   export() {
     const documentType = (this.validator as any).json

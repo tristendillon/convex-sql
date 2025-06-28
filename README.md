@@ -1,222 +1,165 @@
 # Convex-SQL
 
-SQL-like constraints and relations for Convex with automatic index generation and constraint enforcement.
+SQL-like constraints & relations for Convex that give you relational DB ergonomics on top of Convex’s NoSQL model.
 
-## Features
+---
 
-- 🔗 **SQL-like Relations**: Define foreign keys with cascade/restrict behavior
-- 🔒 **Unique Constraints**: Enforce uniqueness across your data
-- 📊 **Auto-generated Indexes**: Automatically create indexes for relations and unique fields
-- 🛡️ **Runtime Validation**: Constraint enforcement at the database level
-- 🔄 **Live Code Generation**: Watch your schema and auto-generate constraint code
-- 📝 **TypeScript Support**: Full type safety for your constraints
+## 📌 Why?
 
-## Quick Start
+I love Convex’s NoSQL style — but for many projects, I still end up recreating relational patterns.  
+Handling cascading deletes, ensuring unique fields, managing relations, writing your own checks... it’s all repetitive.
 
-### 1. Installation
+So I built a toolkit that adds:
+- 🔗 **Relations** (with `cascade`, `restrict`, `setNull`)
+- 🔒 **Unique constraints**
+- ⚡ **Auto-generated indexes**
+- 🛡️ **Runtime constraint validation**
+- 📝 **Type-safe code generation**
 
-```bash
-npm install convex-sql
-```
+---
 
-### 2. Update your schema
+## ✨ Example API
 
 ```typescript
-// convex/schema.ts
-import { defineSchema } from "convex/server";
-import { v } from "convex/values";
-import { Table, unique, relation, index } from "convex-sql";
+import { Table } from 'convex-sql'
+import { defineSchema } from 'convex/server'
+import { v } from 'convex/values'
 
 const Users = Table('users', {
+  firstName: v.string(),
+  lastName: v.string(),
+  username: v.string(),
   email: v.string(),
-  name: v.string(),
-}).constraints([
-  unique('email'),         // Creates unique index on email
-  index('name'),          // Creates index on name for search
-]);
+})
+  .constraints((c) => [
+    c.unique('email')
+  ])
+  .index('by_name', ['firstName', 'lastName'])
+  .index('by_username', ['username'])
 
-const Posts = Table('posts', {
-  title: v.string(),
+const Documents = Table('documents', {
+  userId: v.id('users'),
+  name: v.string(),
   content: v.string(),
-  userId: v.id('users'),  // Auto-creates index on userId
-}).constraints([
-  relation('userId', Users, { onDelete: 'cascade' }),
-  index(['title', 'userId'])  // Composite index
-]);
+}).constraints((c) => [
+  c.relation('userId', Users, { onDelete: 'restrict' }),
+])
 
 export default defineSchema({
-  users: Users.table,
-  posts: Posts.table,
-});
+  users: Users.toConvexTable(),
+  documents: Documents.toConvexTable(),
+})
 ```
 
-### 3. Generate constraint code
+✅ **Unique constraints auto-create indexes**  
+✅ **Relations auto-create indexes & enforce on insert/delete**
+
+---
+
+## 🛠 Generated Code
+
+Run:
 
 ```bash
-# One-time generation
 npx convex-sql generate
-
-# Watch mode (regenerates on schema changes)
-npx convex-sql watch
 ```
 
-### 4. Use generated constraints in your functions
+to produce validators & enhanced `mutation` / `query` wrappers.
 
 ```typescript
-// convex/posts.ts
-import { mutation } from "./_generated/server";
-import { v } from "convex/values";
-import { validateUsersEmailUnique, validatePostsUserIdRelation } from "./_sql/validators";
+import { withConstraints } from './_sql/db'
+import { mutation, query } from './_generated/server'
 
-export const createPost = mutation({
-  args: {
-    title: v.string(),
-    content: v.string(),
-    userId: v.id("users"),
-  },
+const { mutation: mutationWithConstraints } = withConstraints(mutation, query)
+
+export const createDocument = mutationWithConstraints({
+  args: { name: v.string(), userId: v.id('users'), content: v.string() },
   handler: async (ctx, args) => {
-    // Constraint validation happens automatically
-    await validatePostsUserIdRelation(ctx, args.userId);
-    
-    return await ctx.db.insert("posts", args);
-  },
-});
+    return await ctx.db.insert('documents', args)
+  }
+})
 ```
 
-## API Reference
+---
 
-### Table Function
+### 🔥 Errors you get out of the box
 
-Enhanced version of convex-helpers Table with constraint support:
+Try to delete a user who still has documents:
+
+```json
+{
+  "error": "Cannot delete: 1 related documents record(s) exist"
+}
+```
+
+Or insert with a foreign key that doesn’t exist:
+
+```json
+{
+  "error": "Foreign key constraint violation: documents with id 'xxx' does not exist"
+}
+```
+
+---
+
+## ⚙ More Complex: Custom target fields & defaults
+
+You can build relations not just to system IDs, but to any unique field.  
+Also supports `default` constraints to auto-set values on insert.
 
 ```typescript
-const MyTable = Table('tableName', {
-  field1: v.string(),
-  field2: v.number(),
-}).constraints([
-  // Add constraints here
-]);
-```
-
-### Constraint Types
-
-#### `unique(field)`
-Creates a unique constraint and index on the specified field.
-
-```typescript
-unique('email')  // Email must be unique across all records
-```
-
-#### `relation(field, targetTable, options?)`
-Creates a foreign key relationship with automatic index generation.
-
-```typescript
-relation('userId', Users, { onDelete: 'cascade' })
-relation('categoryId', 'categories', { onDelete: 'restrict' })
-```
-
-**Options:**
-- `onDelete`: `'cascade'` | `'restrict'` | `'setNull'` | `'setDefault'`
-- `onUpdate`: `'cascade'` | `'restrict'` | `'setNull'` | `'setDefault'`
-
-#### `index(fields, name?)`
-Creates an index on one or more fields.
-
-```typescript
-index('name')                    // Simple index
-index(['userId', 'createdAt'])   // Composite index
-index('status', 'status_idx')    // Named index
-```
-
-### CLI Commands
-
-#### `convex-sql generate`
-Generate constraint code from your schema file.
-
-```bash
-convex-sql generate --schema convex/schema.ts --output convex/_sql
-```
-
-#### `convex-sql watch`
-Watch your schema file and regenerate code on changes.
-
-```bash
-convex-sql watch --schema convex/schema.ts --output convex/_sql
-```
-
-#### `convex-sql validate`
-Validate your schema without generating code.
-
-```bash
-convex-sql validate --schema convex/schema.ts
-```
-
-#### `convex-sql init`
-Initialize convex-sql in your project.
-
-```bash
-convex-sql init
-```
-
-## Auto-Generated Files
-
-The CLI generates the following files:
-
-- `validators.ts` - Constraint validation functions
-- `indexes.ts` - Index definitions for your schema
-- `relations.ts` - Helper functions for navigating relations
-- `mutations.ts` - Mutation wrappers with constraint enforcement
-
-## Examples
-
-### Blog Schema
-
-```typescript
-const Users = Table('users', {
-  email: v.string(),
-  name: v.string(),
-}).constraints([
-  unique('email'),
-  index('name'),
-]);
-
-const Posts = Table('posts', {
-  title: v.string(),
-  content: v.string(),
+const Documents = Table('documents', {
   userId: v.id('users'),
-  categoryId: v.id('categories'),
-  status: v.union(v.literal("draft"), v.literal("published")),
-}).constraints([
-  relation('userId', Users, { onDelete: 'cascade' }),
-  relation('categoryId', 'categories', { onDelete: 'restrict' }),
-  index(['userId', 'status']),
-  index('categoryId'),
-]);
+  name: v.string(),
+  documentId: v.string(),
+  content: v.string(),
+}).constraints((c) => [
+  c.relation('userId', Users, { onDelete: 'restrict' }),
+  c.default('documentId', () => crypto.randomUUID()),
+])
+
+const Attachments = Table('attachments', {
+  attachmentId: v.string(),
+  name: v.string(),
+  url: v.string(),
+  docId: v.string(),
+}).constraints((c) => [
+  c.unique('attachmentId'),
+  c.relation('docId', Documents, {
+    targetField: 'documentId',
+    onDelete: 'restrict',
+  }),
+  c.default('attachmentId', () => crypto.randomUUID()),
+])
 ```
 
-This automatically creates:
-- Unique index on `users.email`
-- Index on `users.name`
-- Index on `posts.userId` (from relation)
-- Index on `posts.categoryId` (from relation)
-- Composite index on `[posts.userId, posts.status]`
+✅ Now inserts to `attachments` must reference a valid `documentId`.
 
-### Constraint Enforcement
+---
 
-```typescript
-// Deleting a user will cascade delete their posts
-await deleteUserWithConstraints(ctx, { id: userId });
+## 🚀 CLI
 
-// Trying to delete a category with posts will throw an error
-await deleteCategoryWithConstraints(ctx, { id: categoryId }); // Error!
+- `convex-sql generate` - generate constraint code
+- `convex-sql watch` - auto-regenerate on schema changes
+- `convex-sql validate` - validate your schema only
 
-// Inserting a post with invalid userId will throw an error
-await createPostWithConstraints(ctx, { 
-  title: "Test",
-  userId: "invalid-id"  // Error: User does not exist
-});
-```
+---
 
-## License
+## 🔍 Wrap Up
 
-MIT
+Is this interesting to anyone else?  
+It’s still rough around the edges, but the ergonomics are already way nicer for relational data in Convex.
+
+Want to try it out or help shape it? Drop me a message on discord!
+
+@kickedsoda
+
+---
+
+✅ **Type-safe**  
+✅ **No manual index juggling**  
+✅ **Runtime-safe deletes & inserts**
+
+---
+
+MIT License.

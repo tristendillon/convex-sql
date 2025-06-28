@@ -7,7 +7,6 @@ import {
 } from 'convex/values'
 import type {
   Constraint,
-  TableWithConstraints,
   UniqueConstraint,
   RelationConstraint,
   NotNullConstraint,
@@ -15,9 +14,7 @@ import type {
   DeleteAction,
   TypeSafeConstraints,
 } from './types.js'
-import { getAutoIndexFields, getRelationConstraints } from './constraints.js'
 import {
-  defineTable,
   Expand,
   GenericTableIndexes,
   GenericTableSearchIndexes,
@@ -405,40 +402,4 @@ export class TableDefinitionWithConstraints<
       VectorIndexes
     >
   }
-
-  /**
-   * Get all relation constraints for this table
-   */
-  getRelations(): Array<{
-    field: string
-    targetTable: string
-    onDelete?: string
-    onUpdate?: string
-  }> {
-    return getRelationConstraints(this._constraints).map((rel) => ({
-      field: rel.field,
-      targetTable: rel.targetTable,
-      onDelete: rel.onDelete,
-      onUpdate: rel.onUpdate,
-    }))
-  }
-}
-
-// Export helper functions for working with enhanced tables
-export function isTableWithConstraints<
-  T extends Record<string, Validator<any, any, any>>
->(table: any): table is TableWithConstraints<T, string> {
-  return table && typeof table === 'object' && 'constraints' in table
-}
-
-export function getTableConstraints<T extends TableWithConstraints<any, any>>(
-  table: T
-): Constraint[] {
-  return table.constraints
-}
-
-export function getTableAutoIndexes<T extends TableWithConstraints<any, any>>(
-  table: T
-): string[] {
-  return getAutoIndexFields(table.constraints)
 }

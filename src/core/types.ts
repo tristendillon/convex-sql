@@ -9,14 +9,6 @@ import type { Table as ConvexHelpersTable } from 'convex-helpers/server'
 import { TableDefinitionWithConstraints } from './Table'
 
 // Base constraint types
-export type ConstraintType =
-  | 'unique'
-  | 'relation'
-  | 'index'
-  | 'composite'
-  | 'notNull'
-  | 'default'
-
 export type DeleteAction = 'cascade' | 'restrict' | 'setNull' | 'setDefault'
 
 // Individual constraint definitions

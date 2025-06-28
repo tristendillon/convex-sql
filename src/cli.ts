@@ -8,7 +8,7 @@ import {
   parseSchemaFile,
   generateConstraintCode,
   writeGeneratedCode,
-} from './generator.js'
+} from './generator/index.js'
 
 const program = new Command()
 
@@ -94,6 +94,7 @@ program
   .command('validate')
   .description('Validate schema constraints without generating code')
   .option('-s, --schema <file>', 'Schema file path', 'convex/schema.ts')
+  .option('-f, --full', 'Show full schema')
   .action(async (options) => {
     try {
       const schema = parseSchemaFile(resolve(options.schema))
@@ -115,8 +116,10 @@ program
 
       console.log('✅ Schema is valid')
 
-      console.log('Full schema:')
-      console.log(JSON.stringify(schema, null, 2))
+      if (options.full) {
+        console.log('\nFull schema:')
+        console.log(JSON.stringify(schema, null, 2))
+      }
     } catch (error) {
       console.error('❌ Schema validation failed:', error)
       process.exit(1)

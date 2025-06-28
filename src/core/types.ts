@@ -24,10 +24,10 @@ export interface UniqueConstraint {
   field: string
 }
 
-export interface RelationConstraint {
+export interface RelationConstraint<TableName extends string = string> {
   type: 'relation'
   field: string
-  targetTable: string
+  targetTable: TableName
   onDelete?: DeleteAction
   onUpdate?: DeleteAction
 }
@@ -52,7 +52,7 @@ export type Constraint =
 // Type-safe constraint builders interface
 export interface TypeSafeConstraints<FieldPaths extends string> {
   unique: (field: FieldPaths) => UniqueConstraint
-  relation: <TargetTable extends TableWithConstraints<any, any>>(
+  relation: <TargetTable extends string>(
     field: FieldPaths,
     targetTable: TargetTable,
     options?: {

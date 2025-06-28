@@ -81,25 +81,54 @@ export function Table<
   }
 }
 
-class TableDefinitionWithConstraints<
+/**
+ * @internal
+ */
+export type VectorIndex = {
+  indexDescriptor: string
+  vectorField: string
+  dimensions: number
+  filterFields: string[]
+}
+
+/**
+ * @internal
+ */
+export type Index = {
+  indexDescriptor: string
+  fields: string[]
+}
+
+/**
+ * @internal
+ */
+export type SearchIndex = {
+  indexDescriptor: string
+  searchField: string
+  filterFields: string[]
+}
+
+export class TableDefinitionWithConstraints<
   TableName extends string,
   DocumentType extends Validator<any, any, any> = Validator<any, any, any>,
   Indexes extends GenericTableIndexes = {},
   SearchIndexes extends GenericTableSearchIndexes = {},
   VectorIndexes extends GenericTableVectorIndexes = {}
 > {
-  private table: TableDefinition<
-    DocumentType,
-    Indexes,
-    SearchIndexes,
-    VectorIndexes
-  >
+  private indexes: Index[]
+  private searchIndexes: SearchIndex[]
+  private vectorIndexes: VectorIndex[]
+  // The type of documents stored in this table.
+  validator: DocumentType
   private _constraints: Constraint[] = []
   constructor(
     public readonly name: TableName,
     public readonly fields: DocumentType
   ) {
-    this.table = defineTable(fields as any)
+    this.indexes = []
+    this.searchIndexes = []
+    this.vectorIndexes = []
+    this.validator = fields
   }
 
   index<
@@ -124,14 +153,11 @@ class TableDefinitionWithConstraints<
     SearchIndexes,
     VectorIndexes
   > {
-    const newTable = this.table.index(name, fields)
-    const newInstance = new TableDefinitionWithConstraints(
-      this.name,
-      this.fields
-    )
-    newInstance.table = newTable as any
-    newInstance._constraints = [...this._constraints]
-    return newInstance as any
+    this.indexes.push({
+      indexDescriptor: name,
+      fields: fields,
+    })
+    return this
   }
 
   searchIndex<
@@ -159,14 +185,12 @@ class TableDefinitionWithConstraints<
     >,
     VectorIndexes
   > {
-    const newTable = this.table.searchIndex(name, indexConfig)
-    const newInstance = new TableDefinitionWithConstraints(
-      this.name,
-      this.fields
-    )
-    newInstance.table = newTable as any
-    newInstance._constraints = [...this._constraints]
-    return newInstance as any
+    this.searchIndexes.push({
+      indexDescriptor: name,
+      searchField: indexConfig.searchField,
+      filterFields: indexConfig.filterFields || [],
+    })
+    return this
   }
 
   vectorIndex<
@@ -193,18 +217,13 @@ class TableDefinitionWithConstraints<
         >
     >
   > {
-    const newTable = this.table.vectorIndex(name, indexConfig)
-    const newInstance = new TableDefinitionWithConstraints(
-      this.name,
-      this.fields
-    )
-    newInstance.table = newTable as any
-    newInstance._constraints = [...this._constraints]
-    return newInstance as any
-  }
-
-  export() {
-    return (this.table as any).export()
+    this.vectorIndexes.push({
+      indexDescriptor: name,
+      vectorField: indexConfig.vectorField,
+      dimensions: indexConfig.dimensions,
+      filterFields: indexConfig.filterFields || [],
+    })
+    return this
   }
 
   constraints(
@@ -224,6 +243,26 @@ class TableDefinitionWithConstraints<
     return this.addAutoIndexes()
   }
 
+  // Make the class act like a TableDefinition when used in schema
+  get [Symbol.toStringTag]() {
+    return 'TableDefinition'
+  }
+
+  export() {
+    const documentType = (this.validator as any).json
+    if (typeof documentType !== 'object') {
+      throw new Error(
+        'Invalid validator: please make sure that the parameter of `defineTable` is valid (see https://docs.convex.dev/database/schemas)'
+      )
+    }
+
+    return {
+      indexes: this.indexes,
+      searchIndexes: this.searchIndexes,
+      vectorIndexes: this.vectorIndexes,
+      documentType,
+    }
+  }
   /**
    * Create type-safe constraint builders for this table
    */
@@ -236,7 +275,7 @@ class TableDefinitionWithConstraints<
         field: field as string,
       }),
 
-      relation: <TargetTable extends TableWithConstraints<any, any>>(
+      relation: <TargetTable extends string>(
         field: ExtractFieldPaths<DocumentType>,
         targetTable: TargetTable,
         options?: {
@@ -246,7 +285,7 @@ class TableDefinitionWithConstraints<
       ): RelationConstraint => ({
         type: 'relation',
         field: field as string,
-        targetTable: targetTable.name,
+        targetTable: targetTable,
         onDelete: options?.onDelete,
         onUpdate: options?.onUpdate,
       }),
@@ -277,38 +316,50 @@ class TableDefinitionWithConstraints<
     SearchIndexes,
     VectorIndexes
   > {
-    let currentInstance = this
-
     for (const constraint of this._constraints) {
+      if (
+        this.indexes.find(
+          (idx) => idx.indexDescriptor === `by_${constraint.field}`
+        )
+      ) {
+        continue
+      }
       switch (constraint.type) {
         case 'unique':
           // Add unique index
-          currentInstance = currentInstance.index(
-            `sql_unique_${constraint.field}_idx`,
-            [constraint.field as any]
-          ) as any
+          this.index(`by_${constraint.field}`, [constraint.field as any]) as any
           break
 
         case 'relation':
           // Add index for foreign key
-          currentInstance = currentInstance.index(
-            `sql_rel_${constraint.field}_idx`,
-            [constraint.field as any]
-          ) as any
+          this.index(`by_${constraint.field}`, [constraint.field as any]) as any
           break
         default:
           break
       }
     }
 
-    return currentInstance
+    return this
   }
 
   /**
    * Validate that constraints reference valid fields
    */
   private validateConstraints(): void {
-    const fieldNames = Object.keys((this.fields as any).type || this.fields)
+    let fieldNames: string[] = []
+
+    if (isValidator(this.fields)) {
+      // For validator objects, get fields from the type property
+      const validator = this.fields as any
+      if (validator.type && typeof validator.type === 'object') {
+        fieldNames = Object.keys(validator.type)
+      } else if (validator.fields) {
+        fieldNames = Object.keys(validator.fields)
+      }
+    } else {
+      // For plain objects, get field names directly
+      fieldNames = Object.keys(this.fields)
+    }
 
     for (const constraint of this._constraints) {
       switch (constraint.type) {
@@ -327,6 +378,20 @@ class TableDefinitionWithConstraints<
           break
       }
     }
+  }
+
+  toConvexTable(): TableDefinition<
+    DocumentType,
+    Indexes,
+    SearchIndexes,
+    VectorIndexes
+  > {
+    return this as unknown as TableDefinition<
+      DocumentType,
+      Indexes,
+      SearchIndexes,
+      VectorIndexes
+    >
   }
 
   /**

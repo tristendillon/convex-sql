@@ -156,8 +156,6 @@ async function validateRelationConstraints<T extends TableNames>(
       }
     } else {
       const idxName = \`convex_sql_\${String(relation.targetField)}\`
-      console.log(idxName)
-      console.log(relation)
       const target = await ctx.db
         .query(relation.targetTable)
         .withIndex(idxName as any, (q) =>

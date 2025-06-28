@@ -6,10 +6,11 @@ SQL-like constraints & relations for Convex that give you relational DB ergonomi
 
 ## 📌 Why?
 
-I love Convex’s NoSQL style — but for many projects, I still end up recreating relational patterns.  
+I love Convex’s NoSQL style — but for many projects, I still end up recreating relational patterns.
 Handling cascading deletes, ensuring unique fields, managing relations, writing your own checks... it’s all repetitive.
 
 So I built a toolkit that adds:
+
 - 🔗 **Relations** (with `cascade`, `restrict`, `setNull`)
 - 🔒 **Unique constraints**
 - ⚡ **Auto-generated indexes**
@@ -31,9 +32,7 @@ const Users = Table('users', {
   username: v.string(),
   email: v.string(),
 })
-  .constraints((c) => [
-    c.unique('email')
-  ])
+  .constraints((c) => [c.unique('email')])
   .index('by_name', ['firstName', 'lastName'])
   .index('by_username', ['username'])
 
@@ -41,9 +40,7 @@ const Documents = Table('documents', {
   userId: v.id('users'),
   name: v.string(),
   content: v.string(),
-}).constraints((c) => [
-  c.relation('userId', Users, { onDelete: 'restrict' }),
-])
+}).constraints((c) => [c.relation('userId', Users, { onDelete: 'restrict' })])
 
 export default defineSchema({
   users: Users.toConvexTable(),
@@ -51,7 +48,7 @@ export default defineSchema({
 })
 ```
 
-✅ **Unique constraints auto-create indexes**  
+✅ **Unique constraints auto-create indexes**
 ✅ **Relations auto-create indexes & enforce on insert/delete**
 
 ---
@@ -76,7 +73,7 @@ export const createDocument = mutationWithConstraints({
   args: { name: v.string(), userId: v.id('users'), content: v.string() },
   handler: async (ctx, args) => {
     return await ctx.db.insert('documents', args)
-  }
+  },
 })
 ```
 
@@ -104,7 +101,7 @@ Or insert with a foreign key that doesn’t exist:
 
 ## ⚙ More Complex: Custom target fields & defaults
 
-You can build relations not just to system IDs, but to any unique field.  
+You can build relations not just to system IDs, but to any unique field.
 Also supports `default` constraints to auto-set values on insert.
 
 ```typescript
@@ -147,7 +144,7 @@ const Attachments = Table('attachments', {
 
 ## 🔍 Wrap Up
 
-Is this interesting to anyone else?  
+Is this interesting to anyone else?
 It’s still rough around the edges, but the ergonomics are already way nicer for relational data in Convex.
 
 Want to try it out or help shape it? Drop me a message on discord!
@@ -156,8 +153,8 @@ Want to try it out or help shape it? Drop me a message on discord!
 
 ---
 
-✅ **Type-safe**  
-✅ **No manual index juggling**  
+✅ **Type-safe**
+✅ **No manual index juggling**
 ✅ **Runtime-safe deletes & inserts**
 
 ---

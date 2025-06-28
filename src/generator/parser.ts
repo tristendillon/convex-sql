@@ -4,7 +4,6 @@ import type {
   SchemaMetadata,
   TableMetadata,
   UniqueConstraint,
-  NotNullConstraint,
   DefaultConstraint,
   DeleteAction,
   RelationConstraintMeta,
@@ -331,8 +330,6 @@ export class SchemaParser {
         return this.parseUniqueConstraint(node)
       case 'relation':
         return this.parseRelationConstraint(node, variableToTableMap)
-      case 'notNull':
-        return this.parseNotNullConstraint(node)
       case 'default':
         return this.parseDefaultConstraint(node)
       default:
@@ -357,20 +354,6 @@ export class SchemaParser {
 
     return {
       type: 'unique',
-      field,
-    }
-  }
-
-  private parseNotNullConstraint(
-    node: ts.CallExpression
-  ): NotNullConstraint | null {
-    const fieldArg = node.arguments[0]
-    const field = this.extractStringLiteral(fieldArg)
-
-    if (!field) return null
-
-    return {
-      type: 'notNull',
       field,
     }
   }

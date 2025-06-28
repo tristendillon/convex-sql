@@ -1,6 +1,5 @@
-import type { ObjectType, VObject, Validator } from 'convex/values'
-import { SystemFields, TableDefinition } from 'convex/server'
-import type { Table as ConvexHelpersTable } from 'convex-helpers/server'
+import type { Validator } from 'convex/values'
+import { SystemFields } from 'convex/server'
 import { TableDefinitionWithConstraints } from './Table'
 
 export type ExtractFieldPaths<T extends Validator<any, any, any>> =
@@ -37,27 +36,23 @@ export interface RelationConstraintMeta<TargetTable extends string = string> {
   onUpdate?: DeleteAction
 }
 
-export interface NotNullConstraint {
-  type: 'notNull'
-  field: string
-}
+export type Default = string | number | boolean
+export type DefaultValue = (() => Default) | Default
 
 export interface DefaultConstraint {
   type: 'default'
   field: string
-  value: any
+  value: DefaultValue
 }
 
 export type Constraint =
   | UniqueConstraint
   | RelationConstraint
-  | NotNullConstraint
   | DefaultConstraint
 
 export type ConstrainMeta =
   | RelationConstraintMeta
   | UniqueConstraint
-  | NotNullConstraint
   | DefaultConstraint
 
 // Type-safe constraint builders interface
@@ -74,7 +69,7 @@ export interface TypeSafeConstraints<FieldPaths extends string> {
       onUpdate?: DeleteAction
     }
   ) => RelationConstraint
-  default: (field: FieldPaths, value: any) => DefaultConstraint
+  default: (field: FieldPaths, value: DefaultValue) => DefaultConstraint
 }
 
 // Metadata extracted from schema parsing

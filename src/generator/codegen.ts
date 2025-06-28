@@ -120,7 +120,7 @@ async function validateUniqueConstraints<T extends TableNames>(
     if (fieldValue !== undefined) {
       const existing = await ctx.db
         .query(table)
-        .withIndex(\`convex_sql_\$\{String(field)\}\`, (q) =>
+        .withIndex(\`convex_sql_\${String(field)}\`, (q) =>
           q.eq(String(field), fieldValue)
         )
         .first()
@@ -155,7 +155,7 @@ async function validateRelationConstraints<T extends TableNames>(
         )
       }
     } else {
-      const idxName = \`convex_sql_\$\{String(relation.targetField)\}\`
+      const idxName = \`convex_sql_\${String(relation.targetField)}\`
       console.log(idxName)
       console.log(relation)
       const target = await ctx.db
@@ -174,58 +174,71 @@ async function validateRelationConstraints<T extends TableNames>(
 }
 
 // Helper to handle cascade/restrict on delete
-async function handleDeleteConstraints(
+async function handleDeleteConstraints<T extends TableNames>(
   ctx: MutationCtx,
-  targetTable: TableNames,
-  targetId: Id<TableNames>
+  targetTable: T,
+  targetId: Id<T>
 ) {
   // Find all tables that reference this record
   for (const [sourceTable, constraints] of Object.entries(TABLE_CONSTRAINTS)) {
     if (!constraints?.relations?.length) continue
 
     for (const relation of constraints.relations) {
-      if (relation.targetTable === targetTable) {
-        const idxName = \`convex_sql_\$\{String(relation.field)\}\`
-        const relatedRecords = await ctx.db
+      let relatedRecords: Doc<T>[] = []
+      if (relation.targetField) {
+        const target = await ctx.db.get(targetId as unknown as Id<T>)
+        if (!target) {
+          throw new Error(\`Item to delete does not exist\`)
+        }
+        const targetValue = target[relation.targetField]
+        const idxName = \`convex_sql_\${String(relation.field)}\`
+        relatedRecords = await ctx.db
+          .query(sourceTable as any)
+          .withIndex(idxName as any, (q) =>
+            q.eq(String(relation.field), targetValue)
+          )
+          .collect()
+      } else if (relation.targetTable === targetTable) {
+        const idxName = \`convex_sql_\${String(relation.field)}\`
+        relatedRecords = await ctx.db
           .query(sourceTable as any)
           .withIndex(idxName as any, (q) =>
             q.eq(String(relation.field), targetId)
           )
           .collect()
+      }
+      if (relatedRecords.length === 0) continue
 
-        if (relatedRecords.length === 0) continue
+      switch (relation.onDelete) {
+        case 'cascade':
+          // Delete all related records (this will recursively handle cascades)
+          for (const record of relatedRecords) {
+            await ctx.db.delete(record._id)
+          }
+          throw new Error(
+            \`Cannot delete: \$\{relatedRecords.length\} related \$\{sourceTable\} record(s) exist\`
+          )
 
-        switch (relation.onDelete) {
-          case 'cascade':
-            // Delete all related records (this will recursively handle cascades)
-            for (const record of relatedRecords) {
-              await ctx.db.delete(record._id)
-            }
-            throw new Error(
-              \`Cannot delete: \$\{relatedRecords.length\} related \$\{sourceTable\} record(s) exist\`
-            )
+        case 'restrict':
+          // Prevent deletion if related records exist
+          throw new Error(
+            \`Cannot delete: \$\{relatedRecords.length\} related \$\{sourceTable\} record(s) exist\`
+          )
 
-          case 'restrict':
-            // Prevent deletion if related records exist
-            throw new Error(
-              \`Cannot delete: \$\{relatedRecords.length\} related \$\{sourceTable\} record(s) exist\`
-            )
+        case 'setNull':
+          // Set foreign key to optional field must be of v.optional()
+          for (const record of relatedRecords) {
+            await ctx.db.patch(record._id, {
+              [relation.field]: undefined,
+            } as any)
+          }
+          break
 
-          case 'setNull':
-            // Set foreign key to null
-            for (const record of relatedRecords) {
-              await ctx.db.patch(record._id, {
-                [relation.field]: null,
-              })
-            }
-            break
-
-          default:
-            // Default behavior is restrict
-            throw new Error(
-              \`Cannot delete: \$\{relatedRecords.length\} related \$\{sourceTable\} record(s) exist\`
-            )
-        }
+        default:
+          // Default behavior is restrict
+          throw new Error(
+            \`Cannot delete: \$\{relatedRecords.length\} related \$\{sourceTable\} record(s) exist\`
+          )
       }
     }
   }
@@ -347,6 +360,7 @@ export function withConstraints<Visibility extends FunctionVisibility>(
     query: rawQuery,
   }
 }
+
     `
 
     return `

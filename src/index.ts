@@ -7,4 +7,5 @@ export type {
   DeleteAction,
   UniqueConstraint,
   RelationConstraint,
+  DefaultValue,
 } from './core/types.js'

@@ -405,9 +405,9 @@ export class TableDefinitionWithConstraints<
             targetTable.index(`convex_sql_${constraint.targetField}`, [
               constraint.targetField,
             ])
-          } else {
-            this.index(`convex_sql_${constraint.field}`, [constraint.field])
           }
+
+          this.index(`convex_sql_${constraint.field}`, [constraint.field])
           break
         default:
           break
@@ -439,7 +439,6 @@ export class TableDefinitionWithConstraints<
     for (const constraint of this._constraints) {
       switch (constraint.type) {
         case 'unique':
-        case 'notNull':
         case 'default':
         case 'relation':
           if (!fieldNames.includes(constraint.field)) {

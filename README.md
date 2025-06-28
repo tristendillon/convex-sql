@@ -5,6 +5,7 @@ SQL-like constraints & relations for Convex that give you relational DB ergonomi
 ---
 
 > **For local development setup**, see [SETUP.md](./SETUP.md) for configuration instructions.
+> And use npm exec or pnpm exec instead of npx or pnpm dlx
 
 ## 📌 Why?
 

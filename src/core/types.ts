@@ -88,7 +88,9 @@ export interface TableWithConstraints<
 
 // Metadata extracted from schema parsing
 export interface TableMetadata {
-  name: string
+  name: string // The actual table name from Table('name', ...)
+  variableName?: string // The variable name (e.g., 'Users' from const Users = Table(...))
+  exportKey?: string // The key used in defineSchema export (e.g., 'users' from { users: Users.toConvexTable() })
   fields: Record<string, any>
   constraints: Constraint[]
   autoIndexes: string[] // Fields that get auto-indexes from relations

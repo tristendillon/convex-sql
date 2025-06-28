@@ -275,7 +275,15 @@ export class TableDefinitionWithConstraints<
         field: field as string,
       }),
 
-      relation: <TargetTable extends TableDefinitionWithConstraints<any, any, any, any, any>>(
+      relation: <
+        TargetTable extends TableDefinitionWithConstraints<
+          any,
+          any,
+          any,
+          any,
+          any
+        >
+      >(
         field: ExtractFieldPaths<DocumentType>,
         targetTable: TargetTable,
         options?: {
@@ -319,7 +327,7 @@ export class TableDefinitionWithConstraints<
     for (const constraint of this._constraints) {
       if (
         this.indexes.find(
-          (idx) => idx.indexDescriptor === `by_${constraint.field}`
+          (idx) => idx.indexDescriptor === `convex_sql_${constraint.field}`
         )
       ) {
         continue
@@ -327,12 +335,16 @@ export class TableDefinitionWithConstraints<
       switch (constraint.type) {
         case 'unique':
           // Add unique index
-          this.index(`by_${constraint.field}`, [constraint.field as any]) as any
+          this.index(`convex_sql_${constraint.field}`, [
+            constraint.field as any,
+          ]) as any
           break
 
         case 'relation':
           // Add index for foreign key
-          this.index(`by_${constraint.field}`, [constraint.field as any]) as any
+          this.index(`convex_sql_${constraint.field}`, [
+            constraint.field as any,
+          ]) as any
           break
         default:
           break

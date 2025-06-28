@@ -13,16 +13,57 @@ import type {
 export class CodeGenerator {
   constructor(private schema: SchemaMetadata) {}
 
+  generateTableConstraintsMap(): string {
+    const tableConstraints: Record<string, any> = {}
+
+    // Build constraints for each table using export keys
+    for (const [variableName, table] of Object.entries(this.schema.tables)) {
+      const exportKey = table.exportKey || table.name
+
+      // Extract unique constraints
+      const uniqueConstraints = table.constraints
+        .filter((c) => c.type === 'unique')
+        .map((c) => c.field)
+
+      // Extract relation constraints
+      const relationConstraints = table.constraints
+        .filter((c) => c.type === 'relation')
+        .map((c) => {
+          // For TS we just add this even though it will never happen
+          if (c.type !== 'relation') {
+            return undefined
+          }
+          return {
+            field: c.field,
+            targetTable: c.targetTable,
+            onDelete: c.onDelete || 'restrict',
+            onUpdate: c.onUpdate || 'restrict',
+          }
+        })
+
+      tableConstraints[exportKey] = {
+        unique: uniqueConstraints,
+        relations: relationConstraints,
+      }
+    }
+
+    return `
+    const TABLE_CONSTRAINTS: TableConstraints = ${JSON.stringify(
+      tableConstraints,
+      null,
+      2
+    )};
+    `
+  }
+
   /**
    * Generate the database wrapper that intercepts insert/replace/delete operations
    */
   generateDbWrapper(): string {
-    const tableConstraints = this.generateTableConstraintsMap()
-    const insertLogic = this.generateInsertLogic()
-    const replaceLogic = this.generateReplaceLogic()
-    const deleteLogic = this.generateDeleteLogic()
+    const tableConstraintsCode = this.generateTableConstraintsMap()
 
-    return `import {
+    const importCode = `
+    import {
   customMutation,
   customCtx,
 } from 'convex-helpers/server/customFunctions'
@@ -34,28 +75,154 @@ import {
   GenericDatabaseWriter,
   MutationBuilder,
   QueryBuilder,
+  TableNamesInDataModel,
   WithOptionalSystemFields,
   WithoutSystemFields,
 } from 'convex/server'
+import { GenericId } from 'convex/values'
+    `
 
-// Type-safe table constraints definition
-type TableConstraints = {
-  [T in TableNames]: {
-    unique: Array<keyof Doc<T> & string>
-    relations: Array<{
-      field: keyof Doc<T> & string
+    const tableConstraintsType = `
+    type TableConstraints = {
+  [T in TableNames]?: {
+    unique?: Array<keyof WithoutSystemFields<Doc<T>>>
+    relations?: Array<{
+      field: keyof WithoutSystemFields<Doc<T>>
       targetTable: TableNames
       onDelete?: 'cascade' | 'restrict' | 'setNull' | 'setDefault'
       onUpdate?: 'cascade' | 'restrict' | 'setNull' | 'setDefault'
     }>
   }
 }
+    `
+    const staticWrapperCode = `
+    // STATIC WRAPPER CODE... WILL NOT BE REGENERATED EVERY TIME.
 
-// Table constraints metadata
-const TABLE_CONSTRAINTS: TableConstraints = ${tableConstraints};
+function isSystemField(field: string) {
+  return field === '_id' || field === '_creationTime'
+}
 
 // Validation helper functions
-${this.generateConstraintHelpers()}
+// Helper to validate unique constraints
+async function validateUniqueConstraints<T extends TableNames>(
+  ctx: QueryCtx,
+  table: T,
+  data: Partial<WithoutSystemFields<Doc<T>>>,
+  excludeId?: Id<T>
+) {
+  const constraints = TABLE_CONSTRAINTS[table]
+  if (!constraints || !constraints.unique?.length) return
+
+  for (const field of constraints.unique) {
+    const fieldValue = data[field]
+    if (fieldValue !== undefined) {
+      const existing = await ctx.db
+        .query(table)
+        .withIndex(\`convex_sql_\$\{String(field)\}\`, (q) =>
+          q.eq(String(field), fieldValue)
+        )
+        .first()
+
+      if (existing && (!excludeId || existing._id !== excludeId)) {
+        throw new Error(
+          \`Unique constraint violation: \$\{String(field)\} '\$\{fieldValue\}' already exists in \$\{table\}\`
+        )
+      }
+    }
+  }
+}
+
+// Helper to validate relation constraints
+async function validateRelationConstraints<T extends TableNames>(
+  ctx: QueryCtx,
+  table: T,
+  data: Partial<WithoutSystemFields<Doc<T>>>
+) {
+  const constraints = TABLE_CONSTRAINTS[table]
+  if (!constraints || !constraints.relations?.length) return
+
+  for (const relation of constraints.relations) {
+    const value = data[relation.field]
+
+    if (value && !isSystemField(String(relation.field))) {
+      const target = await ctx.db.get(value as unknown as Id<T>)
+      if (!target) {
+        throw new Error(
+          \`Foreign key constraint violation: \$\{relation.targetTable\} with id '\$\{value\}' does not exist\`
+        )
+      }
+    } else {
+      const idxName = \`convex_sql_\$\{String(relation.field)\}\`
+      const target = await ctx.db
+        .query(relation.targetTable)
+        .withIndex(idxName as any, (q) => q.eq(String(relation.field), value))
+        .first()
+      if (!target) {
+        throw new Error(
+          \`Foreign key constraint violation: \$\{relation.targetTable\} with id '\$\{value\}' does not exist\`
+        )
+      }
+    }
+  }
+}
+
+// Helper to handle cascade/restrict on delete
+async function handleDeleteConstraints(
+  ctx: MutationCtx,
+  targetTable: TableNames,
+  targetId: Id<TableNames>
+) {
+  // Find all tables that reference this record
+  for (const [sourceTable, constraints] of Object.entries(TABLE_CONSTRAINTS)) {
+    if (!constraints?.relations?.length) continue
+
+    for (const relation of constraints.relations) {
+      if (relation.targetTable === targetTable) {
+        const idxName = \`convex_sql_\$\{String(relation.field)\}\`
+        const relatedRecords = await ctx.db
+          .query(sourceTable as any)
+          .withIndex(idxName as any, (q) =>
+            q.eq(String(relation.field), targetId)
+          )
+          .collect()
+
+        if (relatedRecords.length === 0) continue
+
+        switch (relation.onDelete) {
+          case 'cascade':
+            // Delete all related records (this will recursively handle cascades)
+            for (const record of relatedRecords) {
+              await ctx.db.delete(record._id)
+            }
+            throw new Error(
+              \`Cannot delete: \$\{relatedRecords.length\} related \$\{sourceTable\} record(s) exist\`
+            )
+
+          case 'restrict':
+            // Prevent deletion if related records exist
+            throw new Error(
+              \`Cannot delete: \$\{relatedRecords.length\} related \$\{sourceTable\} record(s) exist\`
+            )
+
+          case 'setNull':
+            // Set foreign key to null
+            for (const record of relatedRecords) {
+              await ctx.db.patch(record._id, {
+                [relation.field]: null,
+              })
+            }
+            break
+
+          default:
+            // Default behavior is restrict
+            throw new Error(
+              \`Cannot delete: \$\{relatedRecords.length\} related \$\{sourceTable\} record(s) exist\`
+            )
+        }
+      }
+    }
+  }
+}
 
 /**
  * Database wrapper that enforces constraints on insert, replace, and delete operations
@@ -67,31 +234,81 @@ function wrapDb(ctx: MutationCtx, db: GenericDatabaseWriter<DataModel>) {
     /**
      * Insert with constraint validation
      */
-    insert: async (
-      table: TableNames,
-      value: WithoutSystemFields<DocumentByName<DataModel, TableNames>>
-    ) => {
-${insertLogic}
-      return await db.insert(table, value)
+    insert: async <TableName extends TableNamesInDataModel<DataModel>>(
+      table: TableName,
+      value: WithoutSystemFields<DocumentByName<DataModel, TableName>>
+    ): Promise<{
+      data: GenericId<TableName> | null
+      error: string | null
+    }> => {
+      // Validate constraints before insert
+      try {
+        await validateUniqueConstraints(ctx, table, value)
+        await validateRelationConstraints(ctx, table, value)
+        const result = await db.insert(table, value)
+        return {
+          data: result,
+          error: null,
+        }
+      } catch (error) {
+        return {
+          data: null,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        }
+      }
     },
 
     /**
      * Replace (upsert) with constraint validation
      */
-    replace: async (
-      id: Id<TableNames>,
-      value: WithOptionalSystemFields<DocumentByName<DataModel, TableNames>>
-    ) => {
-${replaceLogic}
-      return await db.replace(id, value)
+    replace: async <TableName extends TableNamesInDataModel<DataModel>>(
+      id: GenericId<TableName>,
+      value: WithOptionalSystemFields<DocumentByName<DataModel, TableName>>
+    ): Promise<{
+      data: GenericId<TableName> | null
+      error: string | null
+    }> => {
+      // Get the table name from the ID
+      const table = id.__tableName
+
+      // For replace operations, we need to exclude the current record from unique checks
+      try {
+        await validateUniqueConstraints(ctx, table, value, id)
+        await validateRelationConstraints(ctx, table, value)
+        await db.replace(id, value)
+        return {
+          data: id,
+          error: null,
+        }
+      } catch (error) {
+        return {
+          data: null,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        }
+      }
     },
 
     /**
      * Delete with cascade/restrict handling
      */
-    delete: async (id: Id<TableNames>) => {
-${deleteLogic}
-      return await db.delete(id)
+    delete: async (
+      table: TableNamesInDataModel<DataModel>,
+      id: GenericId<TableNamesInDataModel<DataModel>>
+    ): Promise<{
+      data: GenericId<TableNamesInDataModel<DataModel>> | null
+      error: string | null
+    }> => {
+      // Handle cascade/restrict constraints before delete
+      try {
+        await handleDeleteConstraints(ctx, table, id)
+        await db.delete(id)
+        return { data: id, error: null }
+      } catch (error) {
+        return {
+          data: null,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        }
+      }
     },
   }
 }
@@ -122,171 +339,18 @@ export function withConstraints<Visibility extends FunctionVisibility>(
     mutation: createMutationWithConstraints(rawMutation),
     query: rawQuery,
   }
-}`
-  }
+}
+    `
 
-  private generateTableConstraintsMap(): string {
-    const tables = Object.entries(this.schema.tables)
-      .map(([tableName, table]) => {
-        const uniqueFields = table.constraints
-          .filter((c) => c.type === 'unique')
-          .map((c) => `'${(c as UniqueConstraint).field}'`)
-
-        const relations = table.constraints
-          .filter((c) => c.type === 'relation')
-          .map((c) => {
-            const rel = c as RelationConstraint
-            return `      {
-        field: '${rel.field}',
-        targetTable: '${rel.targetTable}',
-        onDelete: '${rel.onDelete || 'restrict'}',
-        onUpdate: '${rel.onUpdate || 'restrict'}',
-      }`
-          })
-
-        return `  ${tableName}: {
-    unique: [${uniqueFields.join(', ')}],
-    relations: [${
-      relations.length > 0 ? '\n' + relations.join(',\n') + '\n    ' : ''
-    }],
-  }`
-      })
-      .join(',\n')
-
-    return `{\n${tables},\n}`
-  }
-
-  private generateConstraintHelpers(): string {
-    return `// Helper to validate unique constraints
-async function validateUniqueConstraints<T extends TableNames>(
-  ctx: QueryCtx,
-  table: T,
-  data: Partial<Doc<T>>,
-  excludeId?: Id<T>
-) {
-  const constraints = TABLE_CONSTRAINTS[table]
-  if (!constraints || !constraints.unique.length) return
-
-  for (const field of constraints.unique) {
-    const fieldValue = data[field]
-    if (fieldValue !== undefined) {
-      const existing = await ctx.db
-        .query(table)
-        .withIndex(\`sql_unique_\$\{field\}_idx\`, (q) => q.eq(field, fieldValue))
-        .first()
-
-      if (existing && (!excludeId || existing._id !== excludeId)) {
-        throw new Error(
-          \`Unique constraint violation: \${String(field)} '\${fieldValue}' already exists in \${table}\`
-        )
-      }
-    }
+    return `
+    ${importCode}
+    ${tableConstraintsType}
+    ${tableConstraintsCode}
+    ${staticWrapperCode}
+    `
   }
 }
 
-// Helper to validate relation constraints
-async function validateRelationConstraints<T extends TableNames>(
-  ctx: QueryCtx,
-  table: T,
-  data: Partial<Doc<T>>
-) {
-  const constraints = TABLE_CONSTRAINTS[table]
-  if (!constraints || !constraints.relations.length) return
-
-  for (const relation of constraints.relations) {
-    const value = data[relation.field]
-    if (value) {
-      const target = await ctx.db.get(value)
-      if (!target) {
-        throw new Error(
-          \`Foreign key constraint violation: \${relation.targetTable} with id '\${value}' does not exist\`
-        )
-      }
-    }
-  }
-}
-
-// Helper to handle cascade/restrict on delete
-async function handleDeleteConstraints(
-  ctx: MutationCtx,
-  targetTable: TableNames,
-  targetId: Id<TableNames>
-) {
-  // Find all tables that reference this record
-  for (const [sourceTable, constraints] of Object.entries(TABLE_CONSTRAINTS)) {
-    if (!constraints.relations.length) continue
-
-    for (const relation of constraints.relations) {
-      if (relation.targetTable === targetTable) {
-        const relatedRecords = await ctx.db
-          .query(sourceTable)
-          .withIndex(\`sql_rel_\${String(relation.field)}_idx\`, (q) =>
-            q.eq(String(relation.field), targetId)
-          )
-          .collect()
-
-        if (relatedRecords.length === 0) continue
-
-        switch (relation.onDelete) {
-          case 'cascade':
-            // Delete all related records (this will recursively handle cascades)
-            for (const record of relatedRecords) {
-              await ctx.db.delete(record._id)
-            }
-            break
-
-          case 'restrict':
-            // Prevent deletion if related records exist
-            throw new Error(
-              \`Cannot delete: \${relatedRecords.length} related \${sourceTable} record(s) exist\`
-            )
-
-          case 'setNull':
-            // Set foreign key to null
-            for (const record of relatedRecords) {
-              await ctx.db.patch(record._id, { [relation.field]: null })
-            }
-            break
-
-          default:
-            // Default behavior is restrict
-            throw new Error(
-              \`Cannot delete: \${relatedRecords.length} related \${sourceTable} record(s) exist\`
-            )
-        }
-      }
-    }
-  }
-}`
-  }
-
-  private generateInsertLogic(): string {
-    return `      // Validate constraints before insert
-      await validateUniqueConstraints(ctx, table, value)
-      await validateRelationConstraints(ctx, table, value)`
-  }
-
-  private generateReplaceLogic(): string {
-    return `      // Get the table name from the ID
-      const table = id.__tableName
-
-      // For replace operations, we need to exclude the current record from unique checks
-      await validateUniqueConstraints(ctx, table, value, id)
-      await validateRelationConstraints(ctx, table, value)`
-  }
-
-  private generateDeleteLogic(): string {
-    return `      // Get the table name from the ID
-      const table = id.__tableName
-
-      // Handle cascade/restrict constraints before delete
-      await handleDeleteConstraints(ctx, table, id)`
-  }
-}
-
-/**
- * Generate constraint code from schema metadata
- */
 export function generateConstraintCode(schema: SchemaMetadata): string {
   const generator = new CodeGenerator(schema)
   return generator.generateDbWrapper()
